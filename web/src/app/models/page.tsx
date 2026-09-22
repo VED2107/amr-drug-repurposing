@@ -17,7 +17,17 @@ import { getDatasetVersions, getModelVersions, getPathogens } from "@/lib/querie
 import { RESISTANCE_LIMITATION } from "@/lib/science";
 import { FEATURE_VERSION_GLOSS, MODEL_TYPE_GLOSS } from "@/lib/content";
 
-export const revalidate = 300;
+/*
+  Rendered per request rather than prerendered at build time.
+
+  Every page here reads live counts from Supabase. Prerendering them made the
+  *build* depend on reaching the database, which meant a deployment could fail
+  for a reason that has nothing to do with the code — a connection string, a
+  network route, a paused project. Rendering on request keeps the build a pure
+  function of the repository, and has the side benefit that a figure is never
+  older than the request that asked for it.
+*/
+export const dynamic = "force-dynamic";
 
 /** Metrics worth showing, in the order they should be read. */
 const METRIC_ORDER: { key: string; label: string; digits: number }[] = [

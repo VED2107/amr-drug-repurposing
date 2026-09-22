@@ -18,7 +18,17 @@ import { TARGET_RESISTANCE_RELATION } from "@/lib/content";
 import { DOCKING_SCREENING_TARGET_KCAL_MOL, DOCKING_TARGET_LABEL } from "@/lib/science";
 import { firstValue, type RawSearchParams } from "@/lib/url";
 
-export const revalidate = 300;
+/*
+  Rendered per request rather than prerendered at build time.
+
+  Every page here reads live counts from Supabase. Prerendering them made the
+  *build* depend on reaching the database, which meant a deployment could fail
+  for a reason that has nothing to do with the code — a connection string, a
+  network route, a paused project. Rendering on request keeps the build a pure
+  function of the repository, and has the side benefit that a figure is never
+  older than the request that asked for it.
+*/
+export const dynamic = "force-dynamic";
 
 const PATH = "/docking";
 
