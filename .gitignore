@@ -45,3 +45,12 @@ node_modules/
 # on demand, the exporter refuses to publish it, and a synthetic database in the
 # repository is one rename away from being mistaken for the research one.
 data/demo/
+
+# Environment file for the update worker. Holds the Supabase connection string.
+worker.env
+*.env
+!.env.example
+
+# Local convenience file holding a connection string for pasting into Vercel.
+VERCEL_DATABASE_URL.local.txt
+*.local.txt

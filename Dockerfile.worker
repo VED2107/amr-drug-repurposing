@@ -1,0 +1,74 @@
+# The AMR update worker.
+#
+# This image contains the computational layer and nothing else:
+#
+#   in   : the public sources the pipeline already reads (ChEMBL, FDA Orange Book)
+#   uses : the four ACTIVE models, baked in as artifacts
+#   out  : rows in the existing Supabase schema
+#
+# It does not contain the website, a Next.js build, a frontend, or a database.
+# Supabase stays external and is reached over the network with a connection
+# string supplied at run time. Nothing in here trains a model.
+#
+# Build (from the repository root):
+#   docker build -f Dockerfile.worker -t amr-worker:latest .
+#
+# Run one update:
+#   docker run --rm --env-file worker.env amr-worker:latest
+#
+# See docs/UPDATE_WORKER.md for the full set of commands.
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    AMR_MODELS_DIR=/app/models
+
+# RDKit's wheels need a few shared libraries for their drawing and geometry
+# code. curl is kept for the health check and nothing else.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libxrender1 \
+        libxext6 \
+        libsm6 \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Dependencies first, so that changing source code does not reinstall RDKit and
+# scikit-learn on every build.
+COPY requirements-worker.txt ./
+RUN pip install --upgrade pip && pip install -r requirements-worker.txt
+
+# The scientific engine. `src/` is copied whole because the worker imports the
+# real standardisation, fingerprint, descriptor and model code rather than
+# carrying a second copy of any of it.
+COPY src ./src
+COPY configs ./configs
+COPY pyproject.toml README.md ./
+
+# The four production models, ~167 MB. Baked in so the container is
+# self-contained and the same image runs anywhere; override with a mount and
+# AMR_MODELS_DIR when testing a different set.
+COPY models/RF-mrsa-v4.joblib \
+     models/RF-ecoli-v4.joblib \
+     models/RF-kpneumoniae-v5.joblib \
+     models/RF-mtb-v5.joblib \
+     ./models/
+
+# The worker writes nothing to the image at run time, so it runs unprivileged.
+RUN useradd --create-home --uid 10001 amr \
+    && mkdir -p /app/logs /app/data \
+    && chown -R amr:amr /app
+USER amr
+
+# Readiness, not liveness: the run is a batch job, not a server. `--check`
+# validates configuration, loads all four models and queries the published
+# registry, then exits. It writes nothing.
+HEALTHCHECK --interval=60s --timeout=30s --start-period=10s --retries=2 \
+    CMD ["python", "-m", "src.updater.run", "--check"]
+
+ENTRYPOINT ["python", "-m", "src.updater.run"]
+CMD []

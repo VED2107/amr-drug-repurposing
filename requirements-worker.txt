@@ -1,0 +1,24 @@
+# Dependencies for the update worker only.
+#
+# Deliberately smaller than the research environment: no Streamlit, no Plotly,
+# no py3Dmol, no Meeko, no AutoDock Vina. The worker standardises structures,
+# computes fingerprints and descriptors, calls four trained models and writes to
+# Postgres. Anything beyond that would be weight in the image and surface area
+# in the container.
+#
+# Versions match pyproject.toml exactly, because a model is only reproducible
+# against the library that fitted it: scikit-learn refuses to guarantee that an
+# estimator pickled by one version behaves identically under another.
+
+rdkit==2026.3.6
+numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
+requests==2.34.2
+PyYAML==6.0.3
+python-dotenv==1.2.3
+
+# The published database. psycopg 3 with the binary wheel, so the image needs no
+# libpq build step.
+psycopg[binary]==3.3.6
