@@ -1,5 +1,7 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 /**
  * The single database entry point for the website.
  *
@@ -97,7 +99,16 @@ async function createSupabaseDriver(): Promise<Driver> {
     // Required for Supabase's transaction pooler, which is what a serverless
     // deployment on Vercel should connect through.
     prepare: false,
-    max: 1,
+    /*
+      A page issues its queries with `Promise.all`, so they are concurrent by
+      intent. With a single connection they were serialised anyway, and each one
+      paid the full round trip to the database in turn — which is how a page
+      with ten queries took seconds rather than one round trip's worth.
+
+      Five is chosen to match the widest `Promise.all` on any page while staying
+      far below what the transaction pooler allows per client.
+    */
+    max: 5,
     idle_timeout: 20,
     // The production tables live in the `amr` schema, but the queries are
     // written unqualified so that the same statement runs against the research
@@ -121,10 +132,44 @@ function driver(): Promise<Driver> {
   return driverPromise;
 }
 
+/**
+ * How long a read may be reused before the database is asked again.
+ *
+ * The published data changes only when a pipeline run or the update worker
+ * publishes something, which is minutes apart at best — so re-reading it on
+ * every request buys nothing and costs a round trip to another continent. Five
+ * minutes is the same freshness the pages carried when they were statically
+ * revalidated, kept now at the query rather than at the page.
+ */
+const READ_CACHE_SECONDS = 300;
+
+/*
+  The cached read.
+
+  Keyed on the statement and its parameters, so two pages issuing the same
+  query share one result and a filtered table does not collide with an
+  unfiltered one. Nothing scientific is altered by this: the rows returned are
+  the rows the database returned, and the only question it answers differently
+  is *when* they were fetched.
+*/
+const cachedRead = unstable_cache(
+  async (text: string, serialisedParams: string) => {
+    const d = await driver();
+    return d.all<unknown>(text, JSON.parse(serialisedParams) as Params);
+  },
+  ["amr-read"],
+  { revalidate: READ_CACHE_SECONDS },
+);
+
 /** Run a query and return every row, typed by the caller. */
 export async function query<T>(sql: string, params: Params = []): Promise<T[]> {
-  const d = await driver();
-  return d.all<T>(sql, params);
+  // The local SQLite driver is already on the same machine, and caching it
+  // would only make the integrity tests read stale rows mid-run.
+  if (dataSource() === "sqlite") {
+    const d = await driver();
+    return d.all<T>(sql, params);
+  }
+  return (await cachedRead(sql, JSON.stringify(params))) as T[];
 }
 
 /** Run a query expected to return at most one row. */
