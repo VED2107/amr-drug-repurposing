@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Geist_Mono, Literata } from "next/font/google";
+import localFont from "next/font/local";
 import { AppShell } from "@/components/shell/AppShell";
 import { getBuildInfo } from "@/lib/queries/build";
 import "./globals.css";
@@ -9,25 +9,34 @@ import "./globals.css";
  * reading, and a mono that carries every scientific quantity. The mono is
  * doing the most work here — a number in this system is a measurement, and it
  * is set like one.
+ *
+ * Self-hosted rather than fetched through `next/font/google`. All three are
+ * variable fonts, and asking the Google loader for a list of discrete weights
+ * made it emit one source entry per weight — which the bundler on the
+ * deployment host could not resolve, failing the build on a font rather than on
+ * anything to do with the site. Shipping the variable files removes the
+ * network from the build entirely and gives the full weight axis instead of
+ * five fixed stops. All three are licensed under the SIL Open Font License.
  */
-const display = Bricolage_Grotesque({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+const display = localFont({
+  src: "./fonts/BricolageGrotesque.woff2",
+  weight: "200 800",
   variable: "--font-display-loaded",
   display: "swap",
 });
 
-const body = Literata({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-  style: ["normal", "italic"],
+const body = localFont({
+  src: [
+    { path: "./fonts/Literata.woff2", style: "normal", weight: "200 900" },
+    { path: "./fonts/LiterataItalic.woff2", style: "italic", weight: "200 900" },
+  ],
   variable: "--font-body-loaded",
   display: "swap",
 });
 
-const mono = Geist_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const mono = localFont({
+  src: "./fonts/GeistMono.woff2",
+  weight: "100 900",
   variable: "--font-mono-loaded",
   display: "swap",
 });
@@ -35,9 +44,10 @@ const mono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AMR Research — Smart Screening",
   description:
-    "A screening framework that ranks already-approved medicines for predicted " +
+    "A screening framework that scores already-approved medicines for predicted " +
     "antibacterial activity against four drug-resistant bacteria, and shows the " +
-    "evidence behind each result.",
+    "evidence behind each result. No medicine is ranked and nothing here " +
+    "establishes clinical benefit.",
 };
 
 export default async function RootLayout({
