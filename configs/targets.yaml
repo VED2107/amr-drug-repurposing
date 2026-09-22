@@ -1,0 +1,81 @@
+# =============================================================================
+# Docking targets - one well-characterised protein per pathogen.
+#
+# Target selection rationale and binding-site definition are recorded here and
+# copied into the database, so a docking score can always be traced back to the
+# structure and site it came from. No coordinates are hard-coded: the search box
+# centre is computed at preparation time from the structure itself, either from
+# a co-crystallised ligand or from named catalytic residues.
+#
+# site_mode:
+#   ligand   - box centred on the centroid of the named HETATM residue. Use when
+#              the structure was solved with a ligand bound in the site of
+#              interest; this is the most defensible definition available.
+#   residues - box centred on the centroid of the named residue numbers. Use
+#              when the deposited structure has no informative bound ligand.
+#              Preparation fails loudly if a named residue is absent.
+# =============================================================================
+
+box_size_angstrom: [22.0, 22.0, 22.0]
+
+targets:
+  - target_key: "sa_dhfr"
+    pathogen_key: "mrsa"
+    name: "Dihydrofolate reductase"
+    gene: "folA"
+    pdb_id: "3FRE"
+    chain: "X"
+    uniprot: "P0A017"
+    site_mode: "ligand"
+    site_reference: "TOP"          # trimethoprim, bound in the folate site
+    selection_notes: >-
+      S. aureus DHFR solved with NADPH and trimethoprim. DHFR is a clinically
+      validated antibacterial target (trimethoprim) and the bound inhibitor
+      gives an unambiguous binding-site definition. The NADPH cofactor is not
+      included in the rigid receptor, so scores describe the apo folate pocket.
+
+  - target_key: "ec_dhfr"
+    pathogen_key: "ecoli"
+    name: "Dihydrofolate reductase"
+    gene: "folA"
+    pdb_id: "1RX2"
+    chain: "A"
+    uniprot: "P0ABQ4"
+    site_mode: "ligand"
+    site_reference: "FOL"          # folate, the natural substrate
+    selection_notes: >-
+      E. coli DHFR in the closed conformation with folate and NADP+ bound. The
+      folate position defines the substrate site directly. The NADP+ cofactor is
+      not included in the rigid receptor.
+
+  - target_key: "kp_kpc2"
+    pathogen_key: "kpneumoniae"
+    name: "KPC-2 carbapenemase"
+    gene: "blaKPC-2"
+    pdb_id: "2OV5"
+    chain: "A"
+    uniprot: "Q9F663"
+    site_mode: "residues"
+    site_reference: "70,73,130,166,234"
+    selection_notes: >-
+      KPC-2 is the carbapenemase responsible for carbapenem resistance in
+      K. pneumoniae. The deposited structure contains only a bicine buffer
+      molecule, so the site is defined from the catalytic residues instead:
+      Ser70 (nucleophile), Lys73, Ser130, Glu166 (deacylation) and Thr234 of
+      the KTG motif.
+
+  - target_key: "mtb_inha"
+    pathogen_key: "mtb"
+    name: "Enoyl-ACP reductase (InhA)"
+    gene: "inhA"
+    pdb_id: "4TZK"
+    chain: "A"
+    uniprot: "P9WGR1"
+    site_mode: "ligand"
+    site_reference: "641"          # co-crystallised direct InhA inhibitor
+    selection_notes: >-
+      InhA is the target of isoniazid, the front-line tuberculosis drug, and is
+      the best-validated M. tuberculosis target for small-molecule inhibition.
+      This structure carries a direct (activation-independent) inhibitor that
+      marks the substrate-binding pocket. The NAD cofactor is not included in
+      the rigid receptor.

@@ -1,0 +1,17 @@
+# The dashboard ships its own visual system. These values keep Streamlit's own
+# chrome - toolbar, widgets and the Plotly theme it injects into charts - in the
+# same light palette, instead of falling back to a dark base behind the CSS.
+[theme]
+base = "light"
+primaryColor = "#4F46E5"
+backgroundColor = "#F7F8FA"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0E1524"
+font = "sans serif"
+
+[server]
+headless = true
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false

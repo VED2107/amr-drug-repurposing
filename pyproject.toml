@@ -1,0 +1,32 @@
+[project]
+name = "amr-drug-repurposing"
+version = "1.0.0"
+description = "AI-assisted drug repurposing prototype for antimicrobial resistance (AMR)"
+requires-python = ">=3.11"
+dependencies = [
+    "rdkit==2026.3.6",
+    "pandas==3.0.6",
+    "numpy==2.5.3",
+    "scipy==1.18.1",
+    "scikit-learn==1.9.1",
+    "joblib==1.6.0",
+    "streamlit==1.64.0",
+    "plotly==7.1.0",
+    "requests==2.34.2",
+    "PyYAML==6.0.3",
+    "python-dotenv==1.2.3",
+    "meeko==0.8.0",
+    "py3Dmol==2.5.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+benchmark = ["xgboost", "lightgbm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]

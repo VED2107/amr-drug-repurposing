@@ -1,0 +1,292 @@
+# =============================================================================
+# AMR Drug Repurposing - master configuration
+# Every scientific threshold used by the pipeline is declared here so that runs
+# are reproducible and the labelling strategy is auditable.
+# =============================================================================
+
+project:
+  name: "AMR Drug Repurposing"
+  version: "1.0.0"
+  random_seed: 42
+
+paths:
+  data_raw: "data/raw"
+  data_processed: "data/processed"
+  data_external: "data/external"
+  data_demo: "data/demo"
+  models: "models"
+  logs: "logs"
+  database: "data/amr.sqlite"
+
+network:
+  timeout_seconds: 60
+  max_retries: 3
+  backoff_seconds: 2.0
+  user_agent: "amr-drug-repurposing/1.0 (research prototype)"
+
+# -----------------------------------------------------------------------------
+# Data ingestion
+# -----------------------------------------------------------------------------
+ingestion:
+  chembl:
+    base_url: "https://www.ebi.ac.uk/chembl/api/data"
+    page_size: 1000
+    # Hard cap on activity records pulled per pathogen. Raise for a fuller run;
+    # the default keeps a first build to a few minutes.
+    max_activities_per_pathogen: 12000
+    # Only bioactivity endpoints that describe whole-organism growth inhibition
+    # or direct target potency are ingested. Mixing unrelated endpoints would
+    # make the labels meaningless.
+    accepted_activity_types: ["MIC", "MIC50", "MIC90", "IC50", "Ki", "Kd", "EC50", "MBC"]
+    accepted_units: ["nM", "uM", "M", "ug.mL-1", "ug ml-1", "mg.L-1", "ug/ml"]
+    approved_drug_max_phase: 4
+    approved_drug_page_size: 1000
+    max_approved_drugs: 5000
+
+  orange_book:
+    # Official FDA Orange Book data files (EOBZIP). The attachment query
+    # parameter is required; without it the FDA CDN returns 404.
+    zip_url: "https://www.fda.gov/media/76860/download?attachment"
+    products_file: "products.txt"
+    # The FDA content CDN answers 404 to non-browser user agents on its public
+    # data files, so this fetch presents a browser UA. It is a public dataset
+    # with no authentication; nothing is being bypassed except UA sniffing.
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) amr-drug-repurposing/1.0"
+    # Fallback when the zip is unreachable: openFDA Drugs@FDA API.
+    openfda_url: "https://api.fda.gov/drug/drugsfda.json"
+    openfda_pages: 10
+    openfda_page_size: 1000
+
+  clinicaltrials:
+    base_url: "https://clinicaltrials.gov/api/v2/studies"
+    page_size: 50
+    max_studies_per_drug: 50
+    # Interventional and observational studies are both recorded; the dashboard
+    # separates AMR-relevant from unrelated indications.
+    amr_keywords:
+      - "antimicrobial resistance"
+      - "antibiotic resistance"
+      - "multidrug-resistant"
+      - "multi-drug resistant"
+      - "mrsa"
+      - "methicillin-resistant"
+      - "carbapenem-resistant"
+      - "tuberculosis"
+      - "bacteremia"
+      - "bacterial infection"
+      - "sepsis"
+      - "pneumonia"
+      - "urinary tract infection"
+
+# -----------------------------------------------------------------------------
+# Pathogens (the four targets named by the project presentation)
+# -----------------------------------------------------------------------------
+pathogens:
+  - key: "mrsa"
+    label: "MRSA"
+    full_name: "Methicillin-resistant Staphylococcus aureus"
+    organism: "Staphylococcus aureus"
+    tax_id: 1280
+    # Assay descriptions matching these markers are flagged as explicitly
+    # resistant-strain assays. S. aureus assays that do not match are still
+    # used for training but flagged strain_specific = 0.
+    resistance_markers: ["mrsa", "methicillin-resistant", "methicillin resistant", "oxacillin-resistant"]
+  - key: "ecoli"
+    label: "E. coli"
+    full_name: "Escherichia coli"
+    organism: "Escherichia coli"
+    tax_id: 562
+    resistance_markers: ["esbl", "carbapenem-resistant", "multidrug-resistant"]
+  - key: "kpneumoniae"
+    label: "K. pneumoniae"
+    full_name: "Klebsiella pneumoniae"
+    organism: "Klebsiella pneumoniae"
+    tax_id: 573
+    resistance_markers: ["carbapenem-resistant", "kpc", "esbl", "multidrug-resistant"]
+  - key: "mtb"
+    label: "M. tuberculosis"
+    full_name: "Mycobacterium tuberculosis"
+    organism: "Mycobacterium tuberculosis"
+    tax_id: 1773
+    resistance_markers: ["mdr", "xdr", "rifampicin-resistant", "isoniazid-resistant"]
+
+# -----------------------------------------------------------------------------
+# Activity labelling strategy  (see docs/LABELING.md)
+# -----------------------------------------------------------------------------
+labeling:
+  # All potencies are converted to a common pActivity = -log10(molar value).
+  # pchembl_value from ChEMBL is used directly when present because it is
+  # already the curated -log10 of the standard value.
+  active_threshold_pactivity: 5.0      # 10 uM
+  inactive_threshold_pactivity: 4.0    # 100 uM
+  # Records between the two thresholds are ambiguous and are stored but NOT
+  # used for training (label = NULL). This avoids forcing a binary call on
+  # genuinely borderline chemistry.
+  drop_ambiguous: true
+  # Censored measurements. A greater-than relation means no activity observed
+  # up to this dose: it can only ever support an INACTIVE call. A less-than
+  # relation means active below this dose: it can only support an ACTIVE call.
+  honour_censored_relations: true
+  # When several assays report the same compound/pathogen pair, aggregate.
+  # median is robust to single outlying assays.
+  duplicate_aggregation: "median"
+  # ug/mL to molar conversion needs the molecular weight, which is computed
+  # from the canonical SMILES with RDKit. Records whose SMILES cannot be
+  # parsed are dropped rather than guessed.
+  min_records_per_pathogen: 150
+  min_minority_class_records: 30
+
+# -----------------------------------------------------------------------------
+# Molecular processing
+# -----------------------------------------------------------------------------
+chemistry:
+  fingerprint:
+    type: "morgan"
+    radius: 2
+    n_bits: 1024          # fixed by the project presentation
+    use_chirality: false
+  standardization:
+    strip_salts: true
+    remove_stereo_for_fingerprint: false
+    max_heavy_atoms: 150
+    min_heavy_atoms: 5
+    reject_mixtures_after_salt_strip: true
+  descriptors:
+    lipinski_mw_max: 500.0
+    lipinski_logp_max: 5.0
+    lipinski_hbd_max: 5
+    lipinski_hba_max: 10
+
+# -----------------------------------------------------------------------------
+# Machine learning
+# -----------------------------------------------------------------------------
+ml:
+  feature_version: "morgan-r2-1024-v1"
+  split:
+    method: "scaffold"        # scaffold | random
+    test_fraction: 0.2
+    validation_fraction: 0.15
+    cv_folds: 5
+  baseline_model: "random_forest"
+  # Only models that are appropriate for sparse binary fingerprints on small
+  # datasets are benchmarked. Boosting models are skipped automatically when
+  # the dataset is below min_rows_for_boosting.
+  benchmark_models:
+    - "random_forest"
+    - "extra_trees"
+    - "hist_gradient_boosting"
+    - "logistic_regression"
+    - "linear_svm"
+  min_rows_for_boosting: 800
+  selection:
+    # Primary criterion. PR-AUC is preferred over ROC-AUC because it is
+    # sensitive to the minority class.
+    #
+    # IMPORTANT: models are compared on the PREVALENCE-ADJUSTED PR-AUC,
+    #   (pr_auc - prevalence) / (1 - prevalence),
+    # because raw PR-AUC is bounded below by the class prevalence. A raw PR-AUC
+    # of 0.99 on a 98.5%-positive test set is near-random, while 0.99 on a
+    # 75%-positive set is genuinely strong; comparing the raw values across
+    # dataset versions would keep a bad model in service. The floors below are
+    # applied to the adjusted value for the same reason.
+    primary_metric: "pr_auc"
+    tie_breakers: ["roc_auc", "f1"]
+    # A challenger must beat the incumbent by at least this margin to be
+    # promoted. Prevents version churn from evaluation noise.
+    promotion_margin: 0.01
+    # Absolute floors: a model below either is never promoted to ACTIVE.
+    min_acceptable_pr_auc: 0.30      # prevalence-adjusted
+    min_acceptable_roc_auc: 0.60
+  class_weight: "balanced"
+  random_forest:
+    n_estimators: 500
+    max_depth: null
+    min_samples_leaf: 1
+    n_jobs: -1
+  extra_trees:
+    n_estimators: 500
+    min_samples_leaf: 1
+    n_jobs: -1
+  hist_gradient_boosting:
+    max_iter: 300
+    learning_rate: 0.08
+  logistic_regression:
+    C: 1.0
+    max_iter: 2000
+  linear_svm:
+    C: 1.0
+
+# -----------------------------------------------------------------------------
+# Candidate screening and ranking
+# -----------------------------------------------------------------------------
+screening:
+  candidate_probability_threshold: 0.60
+  max_candidates_per_pathogen: 200
+
+ranking:
+  # The composite score is an explicit, configurable weighted sum of normalised
+  # evidence components. It is a PRIORITISATION aid, not a measure of efficacy.
+  enabled: true
+  weights:
+    ml_probability: 0.50
+    docking: 0.25
+    drug_likeness: 0.10
+    clinical_history: 0.15
+  # Docking scores are more negative when better; this range is used to
+  # normalise them to 0..1.
+  docking_normalisation:
+    best_kcal_mol: -12.0
+    worst_kcal_mol: -4.0
+
+# -----------------------------------------------------------------------------
+# Molecular docking
+# -----------------------------------------------------------------------------
+docking:
+  enabled: true
+  engine: "autodock_vina"
+  # Resolved at runtime: AMR_VINA_BIN env var, then this path, then vina on PATH.
+  vina_binary: "tools/vina.exe"
+  exhaustiveness: 8
+  num_modes: 9
+  energy_range: 3
+  cpu: 0                       # 0 = let Vina decide
+  seed: 42
+  # The presentation mentions -7.0 kcal/mol as an interesting threshold. It is
+  # NOT a universal scientific cutoff; it is a configurable display filter.
+  interest_threshold_kcal_mol: -7.0
+  max_candidates_per_target: 25
+  ligand_conformer_seed: 42
+  receptor_cache_dir: "data/external/receptors"
+  # Crystal structures carry alternate conformations; choose one deterministically.
+  default_altloc: "A"
+  # Incomplete residues (disordered loops, ragged termini) cannot be typed.
+  # They are deleted only beyond this distance from the search box, so a broken
+  # residue inside the binding site still fails preparation loudly.
+  delete_bad_residues_beyond_angstrom: 10.0
+  # Vina's stochastic search degrades badly with ligand flexibility, and very
+  # large ligands (glycopeptides such as oritavancin, polymyxins, macrolides
+  # with long sugar chains) can run for hours without producing a trustworthy
+  # pose. Ligands beyond these bounds are skipped with the reason recorded,
+  # which is honest about coverage rather than reporting an unreliable score.
+  # Rotatable-bond count, not molecular size, is what drives Vina's search cost
+  # and its reliability: rifampin (59 heavy atoms, 4 rotatable bonds) docks in
+  # seconds, while telithromycin (58 heavy atoms, 11 rotatable bonds) exceeded
+  # the 600 s ceiling without converging. The bounds are set accordingly.
+  max_ligand_heavy_atoms: 60
+  max_ligand_rotatable_bonds: 10
+  # Hard ceiling per ligand. A ligand that exceeds it is recorded as a timeout.
+  per_ligand_timeout_seconds: 600
+
+# -----------------------------------------------------------------------------
+# Demo mode
+# -----------------------------------------------------------------------------
+demo:
+  # Demo mode uses a small deterministic dataset shipped in data/demo so the
+  # dashboard is inspectable with no network access. Everything produced in
+  # demo mode is labelled DEMO DATA in the database and the UI.
+  enabled_by_default: false
+  dataset_name: "demo-v1"
+
+dashboard:
+  page_title: "AMR Drug Repurposing"
+  candidates_page_size: 50

@@ -1,0 +1,47 @@
+.venv/
+__pycache__/
+*.pyc
+data/raw/*
+data/processed/*
+data/external/*
+!data/**/.gitkeep
+models/*
+!models/.gitkeep
+logs/*
+!logs/.gitkeep
+tools/vina.exe
+tools/vina
+.env
+.env.*
+!.env.example
+.pytest_cache/
+
+# Google service-account keys. A private key in a commit is a compromised key,
+# so these are ignored by pattern rather than by remembering to.
+.gcp-key.json
+*-key.json
+*.serviceaccount.json
+gcp-*.json
+
+# Vendored Google Cloud CLI (~500MB extracted); not part of the project.
+.tools/
+
+# The research database is a generated artifact, not source. It is 93 MB, it is
+# rebuilt by the pipeline, and the published copy lives in Supabase. Keeping it
+# out of the repository also keeps a stale copy from being mistaken for the
+# current results.
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
+data/*.sqlite-shm
+data/amr.sqlite.gz
+
+# Build output and caches
+build/
+.next/
+node_modules/
+
+# Synthetic data built by scripts/build_demo.py for screenshots. It is generated
+# on demand, the exporter refuses to publish it, and a synthetic database in the
+# repository is one rename away from being mistaken for the research one.
+data/demo/
