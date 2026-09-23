@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { Breadcrumb, num } from "@/components/primitives";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { getClinicalOverview } from "@/lib/queries/analysis";
-import { getBuildInfo } from "@/lib/queries/build";
 import { getCoverageSummary, getModelVersions, getPathogens, getPipelineRuns } from "@/lib/queries/core";
 import { DOCKING_SCREENING_TARGET_KCAL_MOL, RESISTANCE_LIMITATION } from "@/lib/science";
 
@@ -37,13 +36,12 @@ export const dynamic = "force-dynamic";
  * is counted from the database at render time.
  */
 export default async function DashboardPage() {
-  const [coverage, clinical, pathogens, models, runs, build] = await Promise.all([
+  const [coverage, clinical, pathogens, models, runs] = await Promise.all([
     getCoverageSummary(),
     getClinicalOverview(),
     getPathogens(),
     getModelVersions(true),
     getPipelineRuns(6),
-    getBuildInfo(),
   ]);
 
   const notYetChecked = Math.max(0, coverage.clinicalTotal - coverage.clinicalChecked);
@@ -57,13 +55,7 @@ export default async function DashboardPage() {
           Current research state
         </h1>
         <p className="m-0 mt-3 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
-          A live summary of what this research system holds, what it has checked so far, and
-          what it cannot tell you. Every number is counted from the database when you open the
-          page.
-        </p>
-        <p className="m-0 mt-2 font-mono text-[11px] text-muted">
-          {coverage.activeModels} models in use, trained on dataset {build.datasetVersion ?? "unavailable"},
-          last updated {build.snapshot ?? "unavailable"}
+          Every number here is counted live from the research database.
         </p>
 
         {/* ------------------------------------------------------------ */}
@@ -76,7 +68,6 @@ export default async function DashboardPage() {
               <Figure
                 value={coverage.approvedMedicines}
                 label="Approved medicines being screened"
-                term="approved medicines with a valid structure"
                 size="lead"
               />
               <div className="border-t border-rule-soft pt-5">
@@ -84,7 +75,6 @@ export default async function DashboardPage() {
                   value={coverage.validStructures}
                   label="Chemical structures on file"
                   note="Includes the compounds from lab data, not only medicines."
-                  term="valid molecular structures"
                 />
               </div>
             </div>
@@ -95,8 +85,6 @@ export default async function DashboardPage() {
               <Figure
                 value={coverage.labelledBioactivity}
                 label="Lab test results against the four bacteria"
-                note="Each records whether a compound was active or inactive in a real test."
-                term="labelled bioactivity records"
               />
             </div>
           </Specimen>
@@ -107,7 +95,6 @@ export default async function DashboardPage() {
                 value={coverage.distinctStudies}
                 label="Clinical studies registered for these medicines"
                 note="A registration says a study exists. It is not a result."
-                term={`distinct studies, ${num(coverage.trialLinks)} medicine links`}
               />
             </div>
           </Specimen>
@@ -119,7 +106,6 @@ export default async function DashboardPage() {
                   value={coverage.activePredictions}
                   label="AI activity predictions"
                   note="Four models, one per bacterium, applied to every medicine. Not a treatment claim."
-                  term="predictions from ACTIVE models"
                 />
               </div>
               <div className="bg-raised p-6">
@@ -127,7 +113,6 @@ export default async function DashboardPage() {
                   value={coverage.storedPoses}
                   label="3D docking simulations"
                   note={`A computer model of a medicine fitting a bacterial protein, for ${num(coverage.dockedMedicines)} medicines so far.`}
-                  term="stored docking poses"
                 />
               </div>
             </div>
@@ -204,7 +189,6 @@ export default async function DashboardPage() {
         <div className="mt-4 grid gap-4 lg:grid-cols-12">
           <Card
             title="What the system did recently"
-            action={{ href: "/runs", label: "Run history" }}
             className="lg:col-span-7"
           >
             {runs.length === 0 ? (
@@ -235,9 +219,7 @@ export default async function DashboardPage() {
               </ol>
             )}
             <p className="m-0 px-6 py-4 text-[13px] leading-relaxed text-ink-2">
-              When a medicine is newly approved, the system finds it and scores it with the four
-              models already in use. It is never used to retrain them.{" "}
-              <Link href="/pipeline#new-medicines">How a new medicine is scored</Link>
+              <Link href="/pipeline#new-medicines">How a new medicine is scored →</Link>
             </p>
           </Card>
 
@@ -276,7 +258,6 @@ export default async function DashboardPage() {
             >
               Open an investigation
             </h2>
-            <p className="m-0 text-[12px] text-muted">No ranking and no recommendation.</p>
           </div>
           <ul className="m-0 grid list-none gap-px overflow-hidden rounded-card border border-rule bg-rule p-0 sm:grid-cols-2 lg:grid-cols-5">
             {INVESTIGATIONS.map((item) => (
@@ -400,7 +381,6 @@ function Figure({
   value,
   label,
   note,
-  term,
   size = "standard",
 }: {
   value: number;
@@ -408,8 +388,6 @@ function Figure({
   label: string;
   /** One plain sentence on what it means or does not mean. */
   note?: string;
-  /** The database term, for readers who want it. */
-  term?: string;
   size?: "lead" | "standard";
 }) {
   const lead = size === "lead";
@@ -424,7 +402,6 @@ function Figure({
       </p>
       <p className={`m-0 text-ink-2 ${lead ? "mt-4 text-[15px]" : "mt-2.5 text-[13px]"}`}>{label}</p>
       {note ? <p className="m-0 mt-1.5 max-w-[44ch] text-[12px] leading-snug text-muted">{note}</p> : null}
-      {term ? <p className="m-0 mt-2 font-mono text-[10px] text-faint">{term}</p> : null}
     </div>
   );
 }

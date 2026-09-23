@@ -20,7 +20,6 @@ export type ReadoutKey =
   | "structures"
   | "docked"
   | "clinical"
-  | "lastRun"
   | "future";
 
 export interface NavItem {
@@ -81,7 +80,6 @@ export const APP_NAV: NavGroup[] = [
       { href: "/pipeline", label: "Pipeline" },
       { href: "/models", label: "Models & Dataset", readout: "models" },
       { href: "/retraining", label: "Retraining" },
-      { href: "/runs", label: "Run History", readout: "lastRun" },
     ],
   },
   {

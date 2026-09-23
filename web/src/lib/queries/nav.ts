@@ -34,7 +34,7 @@ export type Readouts = Partial<Record<ReadoutKey, Readout>>;
  * index prints no figures at all — never a zero, which would be a claim that
  * there is nothing there.
  */
-export async function getNavReadouts(snapshot: string | null): Promise<Readouts> {
+export async function getNavReadouts(): Promise<Readouts> {
   const readouts: Readouts = {
     future: {
       text: "not built",
@@ -42,7 +42,6 @@ export async function getNavReadouts(snapshot: string | null): Promise<Readouts>
       gauge: { done: 0, of: 1, tone: "none" },
     },
   };
-  if (snapshot) readouts.lastRun = { text: snapshot, spoken: `last pipeline run ${snapshot}` };
 
   try {
     const [c, molecular, scoredRow] = await Promise.all([

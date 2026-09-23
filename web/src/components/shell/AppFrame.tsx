@@ -62,12 +62,10 @@ export function AppFrame({
   children,
   footer,
   readouts,
-  dataVersion,
 }: {
   children: ReactNode;
   footer: ReactNode;
   readouts: Readouts;
-  dataVersion: string | null;
 }) {
   const pathname = usePathname();
   const collapsed = useSyncExternalStore(subscribe, readCollapsed, () => false);
@@ -154,7 +152,6 @@ export function AppFrame({
           >
             <ResearchIndex
               readouts={readouts}
-              dataVersion={dataVersion}
               collapsed={collapsed}
               onToggle={() => apply(!collapsed, false)}
             />
@@ -168,7 +165,7 @@ export function AppFrame({
       {/* Below 1024px the location bar is fixed to the bottom edge; this keeps
           the end of the footer clear of it. */}
       <div aria-hidden="true" className="h-[calc(3.5rem+env(safe-area-inset-bottom,0px))] lg:hidden" />
-      <MobileIndex readouts={readouts} dataVersion={dataVersion} />
+      <MobileIndex readouts={readouts} />
     </>
   );
 }

@@ -32,7 +32,7 @@ export function AppShell({
         Skip to content
       </a>
       <Header snapshot={build.snapshot} />
-      <AppFrame footer={<Footer build={build} />} readouts={readouts} dataVersion={build.dataVersion}>
+      <AppFrame footer={<Footer build={build} />} readouts={readouts}>
         {children}
       </AppFrame>
     </div>

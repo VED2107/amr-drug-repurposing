@@ -55,7 +55,7 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const build = await getBuildInfo();
-  const readouts = await getNavReadouts(build.snapshot);
+  const readouts = await getNavReadouts();
 
   return (
     <html

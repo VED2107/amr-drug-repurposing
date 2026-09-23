@@ -21,10 +21,8 @@ import { Gauge, ResearchIndex } from "./ResearchIndex";
  */
 export function MobileIndex({
   readouts,
-  dataVersion,
 }: {
   readouts: Readouts;
-  dataVersion: string | null;
 }) {
   const pathname = usePathname();
   const sheetId = useId();
@@ -81,7 +79,7 @@ export function MobileIndex({
                 Close
               </button>
             </div>
-            <ResearchIndex readouts={readouts} dataVersion={dataVersion} compact />
+            <ResearchIndex readouts={readouts} compact />
           </div>
         </>
       ) : null}

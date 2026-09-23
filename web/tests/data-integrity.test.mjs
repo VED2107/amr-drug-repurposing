@@ -343,7 +343,6 @@ describe("no page claims clinical benefit", () => {
     "/models",
     "/pipeline",
     "/retraining",
-    "/runs",
     "/roadmap",
   ]) {
     it(`${route} carries no efficacy language`, async () => {

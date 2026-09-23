@@ -29,13 +29,11 @@ import type { Readout, Readouts } from "@/lib/queries/nav";
  */
 export function ResearchIndex({
   readouts,
-  dataVersion,
   compact = false,
   collapsed = false,
   onToggle,
 }: {
   readouts: Readouts;
-  dataVersion: string | null;
   /** The phone sheet: larger targets, no provenance footer duplication. */
   compact?: boolean;
   /** The wide-screen rail folded to its spine. */
@@ -81,7 +79,7 @@ export function ResearchIndex({
 
   return (
     <nav aria-label="Research index" className="flex min-h-full flex-col">
-      <div className={collapsed ? "mb-5" : "mb-6"}>
+      <div className="mb-5">
         <div className="flex items-center justify-between gap-2">
           {!collapsed ? (
             <p className="m-0 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">Research index</p>
@@ -100,11 +98,6 @@ export function ResearchIndex({
             </button>
           ) : null}
         </div>
-        {!collapsed ? (
-          <p className="m-0 mt-1.5 font-mono text-[10px] leading-[1.6] text-faint">
-            Lines show how much has been covered, not how good it is.
-          </p>
-        ) : null}
       </div>
 
       <ol ref={listRef} className={`relative m-0 list-none p-0 ${collapsed ? "space-y-3" : "space-y-5"}`}>
@@ -197,17 +190,11 @@ export function ResearchIndex({
         })}
       </ol>
 
-      {!collapsed ? (
-        <div className="mt-auto pt-8">
-          <div className="border-t border-rule pt-4 font-mono text-[10px] leading-[1.8] text-muted">
-            <p className="m-0">Figures are read from the database on every request.</p>
-            {dataVersion ? <p className="m-0">data version {dataVersion}</p> : null}
-            {!compact ? (
-              <Link href="/" className="mt-2 inline-flex min-h-11 items-center font-display text-[13px]">
-                ← Overview
-              </Link>
-            ) : null}
-          </div>
+      {!collapsed && !compact ? (
+        <div className="mt-auto border-t border-rule pt-2">
+          <Link href="/" className="inline-flex min-h-11 items-center font-display text-[13px]">
+            ← Overview
+          </Link>
         </div>
       ) : null}
     </nav>
