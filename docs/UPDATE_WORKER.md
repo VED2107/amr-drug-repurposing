@@ -104,6 +104,26 @@ the four models add about 167 MB. `.dockerignore` keeps the website, the
 research database, the 1.2 GB of non-production model versions and every `.env`
 out of the build context.
 
+## Everyday use: Docker Desktop
+
+One-time setup, from the repository root. Repeat it after rebuilding the image:
+
+```bash
+docker create --name amr-update-worker --env-file worker.env amr-worker:latest
+```
+
+After that, each update is: **Docker Desktop → Containers → `amr-update-worker`
+→ ▶ Start**. It runs one update and stops. Its **Logs** tab shows the run, and
+the container reads **Exited (0)** when the update succeeded.
+
+There is deliberately no restart policy. The worker is a batch job: `always` or
+`unless-stopped` would restart it the moment it finished and sweep ChEMBL and
+the FDA in a loop, and `on-failure` would retry blind.
+
+Exit codes: `0` success · `1` finished, but some medicines failed (see
+`pipeline_errors`) · `2` configuration · `3` database unreachable · `5` model
+integrity.
+
 ## Run
 
 **Check everything without writing** — validates configuration, loads all four
