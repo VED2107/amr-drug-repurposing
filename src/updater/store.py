@@ -76,10 +76,17 @@ class SupabaseStore:
     # -- lifecycle --------------------------------------------------------
 
     def connect(self) -> None:
-        self._conn = psycopg.connect(self._url, row_factory=dict_row)
-        with self._conn.cursor() as cur:
-            cur.execute(f"set search_path to {SCHEMA}, public")
-        self._conn.commit()
+        # The search path travels as a startup parameter, not a SET. Through
+        # Supabase's transaction pooler each transaction may run on a different
+        # backend, so a SET committed in one transaction is not there for the
+        # next: a run failed with 'relation "model_versions" does not exist'
+        # on its first read. It also left the setting behind on a shared
+        # backend for whichever client got that backend next.
+        self._conn = psycopg.connect(
+            self._url,
+            row_factory=dict_row,
+            options=f"-c search_path={SCHEMA},public",
+        )
 
     def close(self) -> None:
         if self._conn is not None:
@@ -392,6 +399,28 @@ class SupabaseStore:
                 (next_id, name, url, source_version, utcnow(), record_count, notes),
             )
         self.conn.commit()
+
+    def published_probabilities(
+        self, molecule_ids: Sequence[str], model_versions: Sequence[str]
+    ) -> dict[tuple[str, str, str], float]:
+        """The live probability per (molecule, pathogen, model version).
+
+        Read for the self-test's known answers, so the container proves it
+        reproduces what the website is actually showing, not only a file.
+        """
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                select molecule_id, pathogen_key, model_version, probability
+                  from predictions
+                 where molecule_id = any(%s) and model_version = any(%s)
+                """,
+                (list(molecule_ids), list(model_versions)),
+            )
+            return {
+                (r["molecule_id"], r["pathogen_key"], r["model_version"]): float(r["probability"])
+                for r in cur.fetchall()
+            }
 
     def count_predictions_for(self, model_versions: Sequence[str]) -> int:
         with self.conn.cursor() as cur:

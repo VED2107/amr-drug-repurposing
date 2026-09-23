@@ -23,13 +23,19 @@ import numpy as np
 from ..logging_utils import get_logger
 from ..ml import models as zoo
 from .config import EXPECTED_ACTIVE_MODELS, ConfigurationError, UpdaterConfig
+from .integrity import (
+    ModelIntegrityError,
+    load_manifest,
+    manifest_entry,
+    verify_artifact,
+    verify_bundle,
+    verify_libraries,
+)
 from .store import ActiveModel
 
 log = get_logger("amr.updater.models")
 
-
-class ModelIntegrityError(RuntimeError):
-    """Raised when the loaded models are not the ones that were expected."""
+__all__ = ["LoadedModel", "ModelIntegrityError", "load_active_models", "resolve_artifact"]
 
 
 @dataclass
@@ -93,20 +99,32 @@ def load_active_models(
     situation where silently scoring anyway would be wrong.
     """
     loaded: dict[str, LoadedModel] = {}
+    manifest = load_manifest()
 
     for pathogen, meta in sorted(registry.items()):
+        # The registry says which version is in service; the manifest says which
+        # bytes that version is. Both must agree before anything is unpickled.
+        entry = manifest_entry(manifest, pathogen, meta.model_version)
         artifact = resolve_artifact(meta, config.models_dir)
-        bundle = joblib.load(artifact)
+        verify_artifact(artifact, entry)
+        verify_libraries(entry)
+        try:
+            bundle = joblib.load(artifact)
+        except Exception as exc:  # noqa: BLE001 - any unpickling failure is corruption
+            raise ModelIntegrityError(
+                f"{meta.model_version}: {artifact.name} could not be loaded ({type(exc).__name__})"
+            ) from exc
+        verify_bundle(bundle, entry, pathogen)
 
         estimator = bundle["model"]
-        n_features = int(bundle.get("n_features", 1024))
+        n_features = int(bundle["n_features"])
 
         loaded[pathogen] = LoadedModel(
             meta=meta, estimator=estimator, n_features=n_features, artifact=artifact
         )
         log.info(
-            "[AMR UPDATE] loaded %s for %s (%d features) from %s",
-            meta.model_version, pathogen, n_features, artifact.name,
+            "[AMR UPDATE] loaded %s for %s (%d features) from %s, sha256 %s verified",
+            meta.model_version, pathogen, n_features, artifact.name, entry["sha256"][:16],
         )
 
     if config.require_expected_models:

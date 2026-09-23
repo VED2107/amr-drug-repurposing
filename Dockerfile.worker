@@ -58,6 +58,12 @@ COPY models/RF-mrsa-v4.joblib \
      models/RF-mtb-v5.joblib \
      ./models/
 
+# Refuse to build an image around the wrong bytes. Each artifact's SHA-256 and
+# size are checked against src/updater/model_manifest.json (generated from the
+# research database by scripts/build_worker_manifest.py), together with the
+# scikit-learn, NumPy and RDKit versions each model was trained under.
+RUN python -m src.updater.integrity --models-dir /app/models
+
 # The worker writes nothing to the image at run time, so it runs unprivileged.
 RUN useradd --create-home --uid 10001 amr \
     && mkdir -p /app/logs /app/data \

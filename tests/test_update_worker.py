@@ -334,3 +334,190 @@ def test_store_writes_no_table_outside_the_published_schema():
     for forbidden in ("insert into model_versions", "insert into dataset_",
                       "insert into bioactivity", "update model_versions"):
         assert forbidden not in source
+
+
+# --------------------------------------------------------------------------
+# Pinned artifacts, identical features, and the known-answer self-test
+# --------------------------------------------------------------------------
+
+NEEDS_ARTIFACTS = pytest.mark.skipif(
+    not DB_PATH.exists() or not MODELS_DIR.exists(),
+    reason="needs the research database and the model artifacts",
+)
+
+
+def _manifest():
+    from src.updater.integrity import load_manifest
+
+    return load_manifest()
+
+
+def test_manifest_pins_exactly_the_four_production_models():
+    manifest = _manifest()
+    assert {p: m["model_version"] for p, m in manifest["models"].items()} == PRODUCTION_MODELS
+
+    from src.updater.config import EXPECTED_ACTIVE_MODELS
+
+    assert dict(EXPECTED_ACTIVE_MODELS) == PRODUCTION_MODELS
+    for entry in manifest["models"].values():
+        assert len(entry["sha256"]) == 64 and entry["bytes"] > 0
+
+
+@NEEDS_ARTIFACTS
+def test_artifacts_on_disk_match_their_pinned_checksums():
+    from src.updater.integrity import verify_artifact
+
+    for entry in _manifest()["models"].values():
+        verify_artifact(MODELS_DIR / entry["file"], entry)
+
+
+@NEEDS_ARTIFACTS
+def test_known_answers_are_the_published_predictions_not_invented_values():
+    """Every known answer must be the probability the pipeline stored."""
+    manifest = _manifest()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        for case in manifest["known_answers"]:
+            for pathogen, expected in case["probabilities"].items():
+                version = manifest["models"][pathogen]["model_version"]
+                (stored,) = conn.execute(
+                    "select probability from predictions where molecule_id = ? "
+                    "and pathogen_key = ? and model_version = ?",
+                    (case["molecule_id"], pathogen, version),
+                ).fetchone()
+                assert stored == expected, f"{case['generic_name']} / {pathogen}"
+    finally:
+        conn.close()
+
+
+@NEEDS_ARTIFACTS
+def test_worker_features_equal_the_pipelines_stored_fingerprints():
+    """For every approved medicine, the worker's featuriser must produce the
+    fingerprint src/pipeline/process.py stored. Fingerprinting the in-memory
+    standardised molecule instead differed for 7 of 1,691."""
+    from src.chemistry.fingerprints import fingerprint_from_blob
+    from src.config import load_config
+    from src.updater.features import FeatureSettings, featurise
+
+    settings = FeatureSettings.from_config(load_config())
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "select distinct m.molecule_id, m.canonical_smiles, m.fingerprint "
+            "from molecules m join drugs d on d.molecule_id = m.molecule_id "
+            "where m.is_valid = 1 and m.fingerprint is not null"
+        ).fetchall()
+        assert len(rows) > 1000
+        mismatched = [
+            r["molecule_id"]
+            for r in rows
+            if not np.array_equal(
+                featurise(r["canonical_smiles"], settings)[0][0],
+                fingerprint_from_blob(r["fingerprint"], settings.n_bits).astype(np.float32),
+            )
+        ]
+        assert mismatched == [], f"{len(mismatched)} medicines featurised differently"
+    finally:
+        conn.close()
+
+
+@NEEDS_ARTIFACTS
+def test_self_test_reproduces_every_known_answer():
+    from src.config import load_config
+    from src.updater.config import load_updater_config
+    from src.updater.features import FeatureSettings, featurise
+    from src.updater.integrity import run_known_answers
+    from src.updater.models import load_active_models
+    from src.updater.store import ActiveModel
+
+    manifest = _manifest()
+    registry = {
+        p: ActiveModel(p, m["model_version"], m["model_type"], m["dataset_version"],
+                       m["feature_version"], "C:\\anywhere\\" + m["file"])
+        for p, m in manifest["models"].items()
+    }
+    config = _config(load_updater_config)
+    loaded = load_active_models(registry, config)
+    settings = FeatureSettings.from_config(load_config())
+
+    results = run_known_answers(loaded, manifest, lambda s: featurise(s, settings)[0])
+    assert len(results) == len(manifest["known_answers"]) * 4
+    assert max(r.worst_difference for r in results) <= manifest["tolerance"]
+
+
+def _config(load_updater_config):
+    import os
+
+    os.environ.setdefault("AMR_DATABASE_URL", "postgresql://unused")
+    os.environ["AMR_MODELS_DIR"] = str(MODELS_DIR)
+    return load_updater_config()
+
+
+@NEEDS_ARTIFACTS
+def test_a_corrupted_artifact_is_refused_before_it_is_unpickled(tmp_path):
+    from src.updater.integrity import ModelIntegrityError, verify_artifact
+
+    entry = _manifest()["models"]["mtb"]
+    damaged = tmp_path / entry["file"]
+    data = bytearray((MODELS_DIR / entry["file"]).read_bytes())
+    data[len(data) // 2] ^= 0xFF
+    damaged.write_bytes(bytes(data))
+
+    with pytest.raises(ModelIntegrityError, match="SHA-256"):
+        verify_artifact(damaged, entry)
+
+
+@NEEDS_ARTIFACTS
+def test_another_model_renamed_into_place_is_refused(tmp_path):
+    """RF-mtb-v4 copied over RF-mtb-v5 must not be scored as v5."""
+    from src.updater.integrity import ModelIntegrityError, verify_artifact
+
+    entry = _manifest()["models"]["mtb"]
+    impostor = tmp_path / entry["file"]
+    impostor.write_bytes((MODELS_DIR / "RF-mtb-v4.joblib").read_bytes())
+
+    with pytest.raises(ModelIntegrityError):
+        verify_artifact(impostor, entry)
+
+
+def test_a_missing_artifact_is_refused(tmp_path):
+    from src.updater.integrity import ModelIntegrityError, verify_artifact
+
+    entry = _manifest()["models"]["ecoli"]
+    with pytest.raises(ModelIntegrityError, match="missing"):
+        verify_artifact(tmp_path / entry["file"], entry)
+
+
+def test_a_registry_naming_an_unpinned_version_is_refused():
+    from src.updater.integrity import ModelIntegrityError, manifest_entry
+
+    with pytest.raises(ModelIntegrityError, match="RF-mrsa-v5"):
+        manifest_entry(_manifest(), "mrsa", "RF-mrsa-v5")
+
+
+def test_a_different_scikit_learn_is_refused():
+    from src.updater.integrity import ModelIntegrityError, verify_libraries
+
+    entry = _manifest()["models"]["ecoli"]
+    installed = {**entry["library_versions"], "scikit-learn": "1.8.0"}
+    with pytest.raises(ModelIntegrityError, match="scikit-learn"):
+        verify_libraries(entry, installed=installed)
+
+
+def test_a_drifting_known_answer_stops_the_run():
+    from src.updater.integrity import ModelIntegrityError, run_known_answers
+    from src.updater.store import ActiveModel
+
+    manifest = _manifest()
+
+    class Drifting:
+        def __init__(self, version):
+            self.meta = ActiveModel("x", version, "random_forest", None, None, None)
+
+        def predict(self, features):
+            return np.array([0.123456])
+
+    loaded = {p: Drifting(m["model_version"]) for p, m in manifest["models"].items()}
+    with pytest.raises(ModelIntegrityError, match="known answer failed"):
+        run_known_answers(loaded, manifest, lambda s: np.zeros((1, 1024), dtype=np.float32))

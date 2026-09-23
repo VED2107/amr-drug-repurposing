@@ -2,7 +2,7 @@
 
 A container that finds newly approved medicines, scores them with the models
 that are already in service, and writes the results to Supabase. The website
-picks them up on its next revalidation without a rebuild.
+shows them on the next page request, with no rebuild or redeploy.
 
 ```
 ChEMBL + FDA Orange Book
@@ -19,7 +19,9 @@ ChEMBL + FDA Orange Book
 ## What it does
 
 1. Validates its configuration and loads all four ACTIVE models **before**
-   contacting any source.
+   contacting any source. Each artifact's SHA-256 is checked before it is
+   unpickled, and the run does not start until the container has reproduced
+   20 published predictions (see [Model integrity](#model-integrity)).
 2. Reads the published database to learn which medicines already exist. That is
    the only reliable record of what has been done; there is no separate
    bookkeeping table and no local state file to fall out of sync.
@@ -130,13 +132,28 @@ docker run --rm --env-file worker.env amr-worker:latest
 docker run --rm --env-file worker.env amr-worker:latest --limit 25
 ```
 
-**Different model artifacts**, without rebuilding:
+**Trace one medicine end to end**, writing nothing. This reads the live ChEMBL
+record, standardises it, fingerprints it, scores it with the four verified models
+and compares every probability with Supabase:
+
+```bash
+docker run --rm --env-file worker.env amr-worker:latest --trace CHEMBL295698
+```
+
+**Artifacts from a mount** instead of the baked-in copies. A mounted file must
+have the same SHA-256 as the pinned one; any other file is refused. To use a
+different model, follow [Updating the model version safely](#updating-the-model-version-safely):
 
 ```bash
 docker run --rm --env-file worker.env \
   -v "$PWD/models:/models:ro" -e AMR_MODELS_DIR=/models \
   amr-worker:latest --check
 ```
+
+**From this PC, disconnect Cloudflare WARP first** (`warp-cli disconnect`, and
+`warp-cli connect` afterwards). WARP's 1280-byte tunnel loses large replies
+from Supabase: the run fails with `SSL error: unexpected eof` on its first big
+read.
 
 On Windows PowerShell, replace `$PWD` with `${PWD}`.
 
@@ -188,8 +205,28 @@ at the start of every run.
 
 ## Where the models live
 
-Baked into the image at `/app/models`, copied by name from `models/` at build
-time. Only the four ACTIVE artifacts are included.
+**Inside the image**, at `/app/models`. They are copied by name from `models/`
+at build time, and only the four ACTIVE artifacts are included:
+
+| Pathogen | Version | File | Bytes | SHA-256 |
+| --- | --- | --- | --- | --- |
+| MRSA | RF-mrsa-v4 | `RF-mrsa-v4.joblib` | 45,186,232 | `043e8f8805fe4308ba45d347a34c7a5d62aed05728bd44e296e836708bac27bc` |
+| E. coli | RF-ecoli-v4 | `RF-ecoli-v4.joblib` | 43,909,018 | `921ec3ce6cd9ebd9bffc57fa1dfe01e02d0d92ed24337f03cb8a3558bc20f528` |
+| K. pneumoniae | RF-kpneumoniae-v5 | `RF-kpneumoniae-v5.joblib` | 35,362,134 | `7a0f358c8d57b4c1456260389035d621cc4bdb8c6e7fa0872a8ba66fbde63917` |
+| M. tuberculosis | RF-mtb-v5 | `RF-mtb-v5.joblib` | 48,535,510 | `2c9559211e9b274b6858fdc286fc42087cc95c4c84266aecb9827319d49c864c` |
+
+All four are random forests trained on dataset `DS-20260921-fe8c6cb8-78df2c`
+with features `morgan-r2-1024-v1`, under scikit-learn 1.9.1, NumPy 2.5.3 and
+RDKit 2026.03.6. `requirements-worker.txt` pins the same versions. The table is
+generated: `src/updater/model_manifest.json` is the source, written by
+`scripts/build_worker_manifest.py` from the files and the research database.
+
+**Why baked in rather than mounted.** 167 MB is small next to the 1.2 GB image
+base, and baking them in makes the image the unit of deployment. An image tag
+then identifies exactly which bytes score new medicines, the container runs on
+any host without a second artifact to ship, and nothing can drift between the
+image and a volume. A mount is still accepted for the same bytes, but a mount is
+not how a different model gets in.
 
 The registry column `model_versions.artifact_path` records an absolute Windows
 path from the machine that trained the model. That cannot resolve in a
@@ -203,15 +240,61 @@ uses.
 
 1. Train and promote locally, through the existing pipeline. The worker has no
    part in this.
-2. Publish the new `model_versions` row to Supabase.
+2. Publish the new `model_versions` row and its predictions to Supabase.
 3. Copy the new artifact into `models/`.
 4. Update `EXPECTED_ACTIVE_MODELS` in `src/updater/config.py` and the `COPY`
    list in `Dockerfile.worker`.
-5. Rebuild the image and run `--check`. It will refuse to start if the registry
-   and the image disagree.
+5. Run `python scripts/build_worker_manifest.py` to re-pin checksums and known
+   answers from the research database.
+6. Rebuild the image. The build fails if an artifact does not match the
+   manifest. Then run `--check`, which refuses to start if the registry, the
+   manifest and the files disagree, or if a known answer is not reproduced.
 
-Until step 5, the deployed worker stops rather than scoring with a model it was
+Until step 6, the deployed worker stops rather than scoring with a model it was
 not built for. That is the intended behaviour.
+
+## Model integrity
+
+Each check fails the run with exit code 5 and a stated reason. There is no
+fallback model and no default probability.
+
+| When | Check | Code |
+| --- | --- | --- |
+| `docker build` | Size and SHA-256 of all four artifacts, and training-library versions | `src/updater/integrity.py`, `RUN` step in `Dockerfile.worker` |
+| Every start, before unpickling | The registry version must be the pinned one; size and SHA-256 must match | `models.load_active_models` |
+| After unpickling | The bundle's `model_version`, `pathogen_key`, `feature_version` and `n_features` must match | `integrity.verify_bundle` |
+| Every start, before scoring | 5 medicines × 4 models recomputed through the new-medicine path, within 1e-9 of the manifest **and** of the live Supabase rows | `integrity.run_known_answers` |
+| Docker `HEALTHCHECK` | `--check` runs all of the above | `Dockerfile.worker` |
+
+Tests: `tests/test_update_worker.py` covers corrupted, missing, renamed and
+unpinned artifacts, a different scikit-learn, and a drifting answer. It also
+checks the worker's features against the fingerprint the pipeline stored for
+every approved medicine.
+
+## How a new medicine travels
+
+1. **Detected.** ChEMBL's approved molecules are read in full and each structure
+   is standardised. A `molecule_id` (InChIKey) that is not in Supabase's
+   `molecules` is new. A record without a structure is counted and skipped;
+   nothing is filled in from elsewhere.
+2. **Features.** `src/updater/features.py` re-parses the standardised canonical
+   SMILES and computes the Morgan fingerprint (radius 2, 1,024 bits, chirality
+   off, all from `configs/`) and the descriptors, exactly as
+   `src/pipeline/process.py` does for the published data. It used to fingerprint
+   the in-memory standardised molecule instead, which gives different bits for
+   7 of the 1,691 approved medicines. A test now holds the two paths equal.
+3. **Scored.** Each of the four verified models is called through
+   `src.ml.models.predict_proba`, the pipeline's own call.
+4. **Published.** One transaction per medicine writes the `molecules` row, its
+   FDA products in `drugs`, and four `predictions` rows. Each prediction carries
+   `model_version`, `model_type`, `dataset_version`, `feature_version` and
+   `predicted_at`. Predictions insert with `on conflict do nothing`, so a rerun
+   adds nothing. A new medicine is never added to `bioactivity` or to a dataset:
+   it is scored, never learned from.
+5. **Shown.** The writes fire the `record_data_change` trigger (migration
+   `web/supabase/migrations/0003_amr_data_version.sql`). That moves the
+   website's data version, so the next page request misses the read cache and
+   the medicine appears everywhere at once.
 
 ## Verifying it worked
 
@@ -224,6 +307,7 @@ itself is in `pipeline_runs` with `stage = 'update'`, the sources consulted are
 in `data_sources`, and any per-item failures are in `pipeline_errors` with the
 same `run_id`.
 
-The website needs no change: every page reads Supabase at request time or
-revalidates within five minutes, so a newly published medicine appears on its
-own.
+The website needs no change. Every write moves the data version its read cache
+is keyed on, so a newly published medicine appears on the next request. Each
+page records the version it was built from in
+`<meta name="amr-data-version">`.

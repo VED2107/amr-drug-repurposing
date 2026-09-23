@@ -26,14 +26,12 @@ import sys
 import uuid
 from typing import Any
 
-import numpy as np
-
-from ..chemistry.descriptors import compute_descriptors
-from ..chemistry.fingerprints import morgan_fingerprint
 from ..chemistry.standardize import standardize_smiles
 from ..config import load_config
 from ..logging_utils import get_logger, setup_logging
 from .config import ConfigurationError, SUPPORTED_PATHOGENS, load_updater_config
+from .features import FeatureSettings, featurise
+from .integrity import load_manifest, run_known_answers
 from .models import ModelIntegrityError, load_active_models
 from .sources import SourceProduct, fetch_snapshot
 from .store import SupabaseStore, utcnow
@@ -83,6 +81,9 @@ def run_update(argv: list[str] | None = None) -> int:
                         help="do everything except write to Supabase")
     parser.add_argument("--check", action="store_true",
                         help="validate configuration, models and database, then exit")
+    parser.add_argument("--trace", metavar="CHEMBL_ID", default=None,
+                        help="trace one medicine from its live ChEMBL record to the "
+                             "published predictions; writes nothing")
     parser.add_argument("--limit", type=int, default=None,
                         help="maximum new medicines to process in this run")
     args = parser.parse_args(argv)
@@ -102,12 +103,11 @@ def run_update(argv: list[str] | None = None) -> int:
     dry_run = config.dry_run or args.dry_run
     max_new = args.limit or config.max_new_medicines
 
+    log.info("[AMR UPDATE] mode: %s", "dry run (nothing is written)" if dry_run else "publish")
+
     cfg = load_config()
     resolve = _standardiser(cfg)
-    feature_cfg = cfg.get("chemistry", "fingerprint", default={}) or {}
-    radius = int(feature_cfg.get("radius", 2))
-    n_bits = int(feature_cfg.get("n_bits", 1024))
-    descriptor_limits = cfg.get("chemistry", "descriptors", default={}) or {}
+    settings = FeatureSettings.from_config(cfg)
 
     store = SupabaseStore(config.database_url)
     try:
@@ -139,6 +139,38 @@ def run_update(argv: list[str] | None = None) -> int:
             )
 
         model_versions = [loaded[p].meta.model_version for p in scoreable]
+
+        # Nothing new is scored until the container has reproduced what is
+        # published, through the path a new medicine takes.
+        manifest = load_manifest()
+        try:
+            live = store.published_probabilities(
+                [case["molecule_id"] for case in manifest["known_answers"]], model_versions
+            )
+            results = run_known_answers(
+                {p: loaded[p] for p in scoreable},
+                manifest,
+                lambda smiles: featurise(smiles, settings)[0],
+                published=live,
+            )
+        except ModelIntegrityError as exc:
+            log.error("[AMR UPDATE] %s", exc)
+            return 5
+        worst = max(r.worst_difference for r in results)
+        log.info(
+            "[AMR UPDATE] self-test passed: %d known answers reproduced against the manifest "
+            "and the live database (largest difference %.1e, tolerance %.0e)",
+            len(results), worst, manifest["tolerance"],
+        )
+
+        if args.trace:
+            from .trace import trace
+
+            return trace(
+                args.trace, cfg=cfg, resolve=resolve, settings=settings,
+                loaded={p: loaded[p] for p in scoreable}, store=store,
+            )
+
         published = store.published_state(model_versions)
 
         if args.check:
@@ -214,19 +246,10 @@ def run_update(argv: list[str] | None = None) -> int:
         for molecule, record in new_molecules:
             log.info("[AMR UPDATE] Processing medicine %s", record.molecule_id)
             try:
-                mol = record.mol if hasattr(record, "mol") else None
-                if mol is None:
-                    from rdkit import Chem  # local import: only needed on this path
-
-                    mol = Chem.MolFromSmiles(record.canonical_smiles)
-                if mol is None:
-                    raise ValueError("standardised SMILES did not parse")
-
+                # Exactly the features src/pipeline/process.py would compute
+                # for this structure (see src/updater/features.py).
                 log.info("[AMR UPDATE] Generating Morgan fingerprint...")
-                fingerprint = morgan_fingerprint(mol, radius=radius, n_bits=n_bits)
-                descriptors = compute_descriptors(mol, lipinski_limits=descriptor_limits)
-
-                features = np.asarray(fingerprint, dtype=np.float32).reshape(1, -1)
+                features, descriptors = featurise(record.canonical_smiles, settings)
 
                 prediction_rows: list[dict[str, Any]] = []
                 for pathogen in scoreable:

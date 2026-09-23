@@ -1,0 +1,142 @@
+"""Write the update worker's model manifest from the research database.
+
+The manifest pins the four production model artifacts the worker image carries:
+their SHA-256, their size, the metadata stored inside each bundle, and a set of
+known answers — published predictions for named medicines — that the container
+must reproduce before it is allowed to score anything new.
+
+Nothing in the manifest is typed by hand. Checksums are computed from the files
+in ``models/``, metadata is read from the bundles, and every known answer is the
+probability stored in ``data/amr.sqlite`` for that medicine, pathogen and ACTIVE
+model version. Re-run this after promoting a model, then rebuild the image:
+
+    python scripts/build_worker_manifest.py
+    docker build -f Dockerfile.worker -t amr-worker:latest .
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+import joblib
+
+ROOT = Path(__file__).resolve().parents[1]
+DB_PATH = ROOT / "data" / "amr.sqlite"
+MODELS_DIR = ROOT / "models"
+OUT = ROOT / "src" / "updater" / "model_manifest.json"
+
+# Medicines used as known answers. Chosen because each is a named, approved
+# medicine the site already discusses, spanning actives and inactives, so a
+# drift in either direction would show. Their probabilities are read, not set.
+KNOWN_ANSWER_MEDICINES = (
+    "LEVOKETOCONAZOLE",
+    "CIPROFLOXACIN HYDROCHLORIDE",
+    "MOXIFLOXACIN HYDROCHLORIDE",
+    "GEMIFLOXACIN MESYLATE",
+    "ABACAVIR SULFATE",
+)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def main() -> int:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        actives = conn.execute(
+            "select pathogen_key, model_version, artifact_path from model_versions "
+            "where status = 'ACTIVE' order by pathogen_key"
+        ).fetchall()
+
+        models: dict[str, dict] = {}
+        feature_versions: set[str] = set()
+        for row in actives:
+            name = row["artifact_path"].replace("\\", "/").split("/")[-1]
+            path = MODELS_DIR / name
+            bundle = joblib.load(path)
+            if bundle.get("model_version") != row["model_version"]:
+                raise SystemExit(
+                    f"{name} holds {bundle.get('model_version')}, "
+                    f"the registry says {row['model_version']}"
+                )
+            feature_versions.add(bundle["feature_version"])
+            models[row["pathogen_key"]] = {
+                "model_version": row["model_version"],
+                "file": name,
+                "sha256": sha256(path),
+                "bytes": path.stat().st_size,
+                "model_type": bundle["model_type"],
+                "dataset_version": bundle["dataset_version"],
+                "feature_version": bundle["feature_version"],
+                "n_features": int(bundle["n_features"]),
+                "trained_at": bundle["trained_at"],
+                "library_versions": {
+                    k: bundle["library_versions"][k]
+                    for k in ("scikit-learn", "numpy", "rdkit")
+                },
+            }
+
+        if len(feature_versions) != 1:
+            raise SystemExit(f"ACTIVE models disagree on features: {feature_versions}")
+
+        known_answers = []
+        for name in KNOWN_ANSWER_MEDICINES:
+            drug = conn.execute(
+                "select d.molecule_id, m.canonical_smiles from drugs d "
+                "join molecules m on m.molecule_id = d.molecule_id "
+                "where upper(d.generic_name) = ? and m.is_valid = 1 limit 1",
+                (name,),
+            ).fetchone()
+            if drug is None:
+                raise SystemExit(f"{name} is not in the research database")
+            probabilities = {}
+            for pathogen, meta in models.items():
+                row = conn.execute(
+                    "select probability from predictions where molecule_id = ? "
+                    "and pathogen_key = ? and model_version = ?",
+                    (drug["molecule_id"], pathogen, meta["model_version"]),
+                ).fetchone()
+                if row is None:
+                    raise SystemExit(f"no published {pathogen} prediction for {name}")
+                probabilities[pathogen] = row["probability"]
+            known_answers.append(
+                {
+                    "generic_name": name,
+                    "molecule_id": drug["molecule_id"],
+                    "canonical_smiles": drug["canonical_smiles"],
+                    "probabilities": probabilities,
+                }
+            )
+    finally:
+        conn.close()
+
+    manifest = {
+        "about": (
+            "The production models baked into the update worker image. Generated by "
+            "scripts/build_worker_manifest.py from models/ and data/amr.sqlite; do not "
+            "edit by hand. The worker refuses to load an artifact whose SHA-256 differs, "
+            "and refuses to score until it reproduces every known answer."
+        ),
+        "feature_version": feature_versions.pop(),
+        "tolerance": 1e-9,
+        "models": models,
+        "known_answers": known_answers,
+    }
+    OUT.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {OUT.relative_to(ROOT)}: {len(models)} models, "
+          f"{len(known_answers)} medicines x {len(models)} known answers")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
