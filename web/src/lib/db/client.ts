@@ -1,6 +1,7 @@
 import "server-only";
 
 import { unstable_cache } from "next/cache";
+import { cache } from "react";
 
 /**
  * The single database entry point for the website.
@@ -95,7 +96,7 @@ async function createSupabaseDriver(): Promise<Driver> {
     );
   }
   const { default: postgres } = await import("postgres");
-  const sql = postgres(url, {
+  const open = () => postgres(url, {
     // Required for Supabase's transaction pooler, which is what a serverless
     // deployment on Vercel should connect through.
     prepare: false,
@@ -109,6 +110,18 @@ async function createSupabaseDriver(): Promise<Driver> {
       far below what the transaction pooler allows per client.
     */
     max: 5,
+    /*
+      One statement in flight per connection. By default postgres.js pipelines:
+      it writes the next queued statement before the previous reply arrives. If
+      one reply is lost, every statement queued behind it on that connection
+      waits with it. Measured through the transaction pooler, a batch of eight
+      pipelined reads left seven pending indefinitely; without pipelining the
+      same batch completed. A queued read now waits for a free connection
+      instead, which beside the database costs milliseconds.
+    */
+    // Honoured by postgres.js at runtime (src/index.js) but absent from its
+    // 3.4 type definitions, hence the spread.
+    ...({ max_pipeline: 0 } as object),
     idle_timeout: 20,
     // The production tables live in the `amr` schema, but the queries are
     // written unqualified so that the same statement runs against the research
@@ -116,12 +129,111 @@ async function createSupabaseDriver(): Promise<Driver> {
     connection: { search_path: "amr,public" },
   });
 
+  let pool = open();
+
+  /*
+    A read that missed its deadline is sitting on a connection that may never
+    hear back, and a retry must not queue behind it. The pool is replaced, and
+    the old one is closed once its other reads have had a moment to finish;
+    any it cuts off fail as CONNECTION_ENDED and are asked again on the new one.
+
+    The stuck statement is deliberately not cancelled. Through a transaction
+    pooler a cancel request is routed to whichever backend the pooler picks,
+    which by then may be running someone else's statement — the update
+    worker's, for instance.
+  */
+  function replace(stuck: typeof pool) {
+    if (pool !== stuck) return;
+    pool = open();
+    void stuck.end({ timeout: 5 }).catch(() => {});
+  }
+
   return {
     async all<T>(text: string, params: Params): Promise<T[]> {
-      const rows = await sql.unsafe(toPostgresPlaceholders(text), params as never[]);
-      return rows as unknown as T[];
+      const statement = toPostgresPlaceholders(text);
+      for (let attempt = 1; ; attempt++) {
+        const current = pool;
+        try {
+          const rows = await withinDeadline(
+            current.unsafe(statement, params as never[]),
+            QUERY_DEADLINE_MS,
+          );
+          return rows as unknown as T[];
+        } catch (error) {
+          if (codeOf(error) === "QUERY_DEADLINE") replace(current);
+          if (attempt >= QUERY_ATTEMPTS || !isTransient(error)) throw error;
+        }
+      }
     },
   };
+}
+
+/*
+  Every read has a deadline, and a read that fails at the connection is asked
+  once more.
+
+  Without a deadline, a reply lost between the pooler and this process left the
+  query pending forever, and the page with it: the request hung until the HTTP
+  client gave up at 300 seconds, which is where the five-minute integrity test
+  came from. Now a page either renders from an answer or fails within about a
+  minute and a half, and shows the error page — which substitutes nothing.
+
+  Where it was measured, the replies that went missing were the large ones: a
+  path that drops packets above its MTU (a VPN tunnel, in that case) delivers
+  a one-row count and loses a 90 KB result. The deadline is what turns that
+  from a silent hang into a reported failure wherever it happens.
+
+  Only failures of the connection itself are retried. Every statement here is a
+  read, so asking twice cannot change anything; a query that is wrong fails the
+  same way twice and is reported, not retried further.
+*/
+const QUERY_DEADLINE_MS = 40_000;
+const QUERY_ATTEMPTS = 2;
+
+const TRANSIENT_CODES = new Set([
+  // postgres.js, for a socket that failed to open or closed under a query
+  "CONNECT_TIMEOUT",
+  "CONNECTION_CLOSED",
+  "CONNECTION_ENDED",
+  "CONNECTION_DESTROYED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  // Postgres connection exceptions — the pooler reports a handshake it gave up
+  // on as 08006 (EAUTHTIMEOUT)
+  "08000",
+  "08001",
+  "08003",
+  "08006",
+  // A cancel that the transaction pooler delivered to a shared backend; the
+  // role this site reads as carries no statement timeout of its own
+  "57014",
+  "QUERY_DEADLINE",
+]);
+
+function codeOf(error: unknown): string | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : null;
+}
+
+function isTransient(error: unknown): boolean {
+  const code = codeOf(error);
+  return code !== null && TRANSIENT_CODES.has(code);
+}
+
+function withinDeadline<T>(pending: PromiseLike<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        Object.assign(new Error(`The database did not answer within ${ms / 1000} s.`), {
+          code: "QUERY_DEADLINE",
+        }),
+      );
+    }, ms);
+  });
+  // An abandoned read must never surface later as an unhandled rejection.
+  Promise.resolve(pending).catch(() => {});
+  return Promise.race([Promise.resolve(pending), deadline]).finally(() => clearTimeout(timer));
 }
 
 function driver(): Promise<Driver> {
@@ -133,31 +245,59 @@ function driver(): Promise<Driver> {
 }
 
 /**
- * How long a read may be reused before the database is asked again.
+ * The version of the published data, read fresh once per request.
  *
- * The published data changes only when a pipeline run or the update worker
- * publishes something, which is minutes apart at best — so re-reading it on
- * every request buys nothing and costs a round trip to another continent. Five
- * minutes is the same freshness the pages carried when they were statically
- * revalidated, kept now at the query rather than at the page.
+ * Migration 0003 makes every transaction that writes to the `amr` schema record
+ * itself in `data_changes`, atomically with the write. This returns the size
+ * and high-water mark of that log, so it changes exactly when the data does.
+ *
+ * It is never cached. `cache` here only shares the one answer among the queries
+ * of a single request, which is what makes every figure on a page come from the
+ * same version of the data. If it cannot be read, nothing on the page is served
+ * from the cache: the request fails, and the error page says so.
+ */
+export const dataVersion = cache(async (): Promise<string> => {
+  if (dataSource() === "sqlite") return "sqlite";
+  const d = await driver();
+  const [row] = await d.all<{ n: unknown; last: unknown }>(
+    `select count(*) as n, max(xact_id) as last from data_changes`,
+    [],
+  );
+  return `${String(row.n)}.${String(row.last ?? 0)}`;
+});
+
+/**
+ * A backstop, not the freshness rule.
+ *
+ * Freshness comes from the data version in the cache key: once a pipeline run,
+ * the update worker or the ETL commits, the next request carries a new version
+ * and misses every cached read. The timer only bounds how long an entry lives
+ * if a write ever bypassed the triggers (a restore run with triggers disabled).
  */
 const READ_CACHE_SECONDS = 300;
 
 /*
   The cached read.
 
-  Keyed on the statement and its parameters, so two pages issuing the same
-  query share one result and a filtered table does not collide with an
-  unfiltered one. Nothing scientific is altered by this: the rows returned are
-  the rows the database returned, and the only question it answers differently
-  is *when* they were fetched.
+  Keyed on the statement, its parameters and the data version, so two pages
+  issuing the same query against the same data share one result, a filtered
+  table does not collide with an unfiltered one, and nothing read before a
+  publish is served after it. The rows returned are the rows the database
+  returned; the version decides only whether they may be reused.
+
+  Before the version was part of the key, each query's entry aged on its own
+  clock, survived restarts and redeploys, and — this is how `unstable_cache`
+  behaves — an expired entry was served once more while it refreshed, and served
+  again if the refresh failed. A page could then show a count the database no
+  longer held, next to a count read a moment later.
 */
 const cachedRead = unstable_cache(
-  async (text: string, serialisedParams: string) => {
+  async (text: string, serialisedParams: string, version: string) => {
+    void version; // part of the cache key only
     const d = await driver();
     return d.all<unknown>(text, JSON.parse(serialisedParams) as Params);
   },
-  ["amr-read"],
+  ["amr-read-v2"],
   { revalidate: READ_CACHE_SECONDS },
 );
 
@@ -169,7 +309,8 @@ export async function query<T>(sql: string, params: Params = []): Promise<T[]> {
     const d = await driver();
     return d.all<T>(sql, params);
   }
-  return (await cachedRead(sql, JSON.stringify(params))) as T[];
+  const version = await dataVersion();
+  return (await cachedRead(sql, JSON.stringify(params), version)) as T[];
 }
 
 /** Run a query expected to return at most one row. */

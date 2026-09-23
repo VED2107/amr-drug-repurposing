@@ -68,6 +68,11 @@ export default async function RootLayout({
       }}
     >
       <body>
+        {build.dataVersion ? (
+          // React hoists this into <head>. The integrity tests compare it with
+          // the database to prove the page was not served from a stale cache.
+          <meta name="amr-data-version" content={build.dataVersion} />
+        ) : null}
         <AppShell build={build}>{children}</AppShell>
       </body>
     </html>

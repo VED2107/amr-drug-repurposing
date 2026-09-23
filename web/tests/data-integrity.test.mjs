@@ -48,6 +48,8 @@ before(() => {
   assert.ok(env.DATABASE_URL, "DATABASE_URL must be set in web/.env.local");
   sql = postgres(env.DATABASE_URL, {
     prepare: false,
+    // The pooler can take tens of seconds to complete a handshake from far away.
+    connect_timeout: 60,
     connection: { search_path: "amr,public" },
   });
 });
@@ -59,10 +61,47 @@ after(async () => {
 /** Digits as the interface groups them: 1691 → "1,691". */
 const grouped = (value) => Number(value).toLocaleString("en-GB");
 
+/*
+  A page that does not answer is a failure, and says so. Without a deadline the
+  HTTP client waited 300 seconds for response headers before giving up, which is
+  how one check came to take five minutes. The site bounds every database read
+  (two attempts of at most 40 s), so two minutes is ample for any page.
+*/
+const PAGE_DEADLINE_MS = 120_000;
+
 async function html(route) {
-  const res = await fetch(`${BASE_URL}${route}`);
+  const res = await fetch(`${BASE_URL}${route}`, {
+    signal: AbortSignal.timeout(PAGE_DEADLINE_MS),
+  });
   assert.equal(res.status, 200, `${route} should render`);
   return res.text();
+}
+
+/** The data version the database is at now (see migration 0003). */
+async function currentDataVersion() {
+  const [row] = await sql`select count(*) as n, max(xact_id) as last from data_changes`;
+  return `${row.n}.${row.last ?? 0}`;
+}
+
+/** The data version a rendered page says its figures were read at. */
+function renderedDataVersion(page) {
+  const match = page.match(/<meta name="amr-data-version" content="([^"]+)"/);
+  return match ? match[1] : null;
+}
+
+/*
+  A page's figures were read at the version it declares. If that is the version
+  the database is at, no figure on it can have come from before a publish —
+  which a count-by-count comparison cannot prove on its own, because a stale
+  cache and a quiet database show the same numbers.
+*/
+async function assertCurrent(route, page) {
+  const now = await currentDataVersion();
+  assert.equal(
+    renderedDataVersion(page),
+    now,
+    `${route} must be rendered from the current data version (${now}), not a cached one`,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,6 +156,25 @@ describe("registry invariants", () => {
     );
   });
 
+  it("records every write to the published tables as a data change", async () => {
+    // The website keys its read cache on this log. A table without the trigger
+    // could change without the version moving, and the site would go on
+    // showing what it held before.
+    const rows = await sql`
+      select c.relname from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'amr' and c.relkind in ('r', 'p') and c.relname <> 'data_changes'
+         and not exists (
+           select 1 from pg_trigger t
+            where t.tgrelid = c.oid and t.tgname = 'record_data_change' and t.tgenabled <> 'D')
+       order by c.relname`;
+    assert.deepEqual(
+      rows.map((r) => r.relname),
+      [],
+      "every table in the amr schema must carry an enabled record_data_change trigger",
+    );
+  });
+
   it("labels every prediction with the dataset it came from", async () => {
     const [row] = await sql`
       select count(*) as n from predictions p
@@ -140,6 +198,7 @@ describe("the dashboard reports live counts", () => {
         (select count(*) from docking_results where status = 'ok')                    as poses`;
 
     const page = await html("/dashboard");
+    await assertCurrent("/dashboard", page);
     for (const [label, value] of Object.entries(row)) {
       assert.ok(
         page.includes(grouped(value)),
@@ -240,6 +299,7 @@ describe("coverage is reported as coverage, not as evidence", () => {
         (select count(distinct nct_id) from clinical_trials)        as studies`;
 
     const page = await html("/clinical");
+    await assertCurrent("/clinical", page);
     assert.ok(page.includes(grouped(row.queried)), "shows how many medicines were queried");
     assert.ok(page.includes(grouped(row.none_found)), "shows how many returned nothing");
     assert.ok(page.includes(grouped(row.studies)), "shows the distinct study count");
@@ -254,6 +314,7 @@ describe("coverage is reported as coverage, not as evidence", () => {
           where status = 'ok')                                              as molecules`;
 
     const page = await html("/docking");
+    await assertCurrent("/docking", page);
     assert.ok(page.includes(grouped(row.poses)), "shows the stored pose count");
     assert.ok(page.includes(grouped(row.molecules)), "shows how many medicines are docked");
     assert.ok(/not yet docked/i.test(page), "must name the uncomputed remainder");

@@ -1,12 +1,18 @@
 import "server-only";
 
-import { queryOne } from "@/lib/db/client";
+import { dataVersion, queryOne } from "@/lib/db/client";
 
 export interface BuildInfo {
   datasetVersion: string | null;
   featureVersion: string | null;
   /** Date of the most recent completed pipeline run, as a snapshot marker. */
   snapshot: string | null;
+  /**
+   * The data version every figure on this request was read at (see
+   * `dataVersion`). Published in the page head so a check can confirm that a
+   * page reflects the database as it is now, not as it was when a cache filled.
+   */
+  dataVersion: string | null;
 }
 
 /**
@@ -27,17 +33,21 @@ export async function getBuildInfo(): Promise<BuildInfo> {
           where status = 'ACTIVE' order by training_date desc limit 1) as feature_version,
         (select max(started_at) from pipeline_runs)                    as snapshot
     `);
-    if (!row) return { datasetVersion: null, featureVersion: null, snapshot: null };
+    const version = await dataVersion();
+    if (!row) {
+      return { datasetVersion: null, featureVersion: null, snapshot: null, dataVersion: version };
+    }
 
     const snapshot = row.snapshot == null ? null : String(row.snapshot).slice(0, 10);
     return {
       datasetVersion: row.dataset_version == null ? null : String(row.dataset_version),
       featureVersion: row.feature_version == null ? null : String(row.feature_version),
       snapshot,
+      dataVersion: version,
     };
   } catch {
     // The shell must render even when the database is unreachable, so that the
     // page can show an error state rather than a blank screen.
-    return { datasetVersion: null, featureVersion: null, snapshot: null };
+    return { datasetVersion: null, featureVersion: null, snapshot: null, dataVersion: null };
   }
 }
