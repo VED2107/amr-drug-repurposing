@@ -1,73 +1,110 @@
 /**
- * Navigation structure.
+ * Navigation structure — the one source every navigating surface reads.
  *
- * The two-tier shape comes from the design: a primary tier that separates the
- * narrative Overview from the working Dashboard, and a grouped secondary tier
- * that only appears once you are inside the application.
+ * Inside the application the sections are a research index, not a menu: they
+ * are numbered in the order evidence is built — screen the library, explore a
+ * medicine, weigh the evidence, inspect the system that produced it — with the
+ * roadmap set apart as future work. The same index is the left rail on a wide
+ * screen and the sheet behind the location bar on a phone.
  *
- * The design's System group carried Pipeline alone. The research system also
- * has model, dataset, retraining and run-history surfaces, so the group is
- * extended here rather than inventing a new place to put them.
- *
- * Roadmap sits in the primary tier next to Overview rather than inside the
- * application. It carries no live data — it is the presentation's future-work
- * list — and a narrative surface inside the working nav reads as though the
- * system already does what it describes.
+ * An entry may carry a `readout`: the key of one live figure the index prints
+ * beside it, so the navigation also reports the state of the thing it leads
+ * to. The figures themselves are read from the database per request; this file
+ * only says which one belongs where.
  */
+
+export type ReadoutKey =
+  | "medicines"
+  | "predictions"
+  | "models"
+  | "structures"
+  | "docked"
+  | "clinical"
+  | "lastRun"
+  | "future";
 
 export interface NavItem {
   href: string;
   label: string;
+  readout?: ReadoutKey;
 }
 
 export interface NavGroup {
+  /** Two-digit stage number, or null for the unnumbered Future group. */
+  n: string | null;
   label: string;
   items: NavItem[];
 }
 
+/** The two places outside the index: the narrative Overview and the Dashboard. */
 export const TOP_NAV: NavItem[] = [
   { href: "/", label: "Overview" },
-  { href: "/roadmap", label: "Roadmap" },
   { href: "/dashboard", label: "Dashboard" },
 ];
 
 export const APP_NAV: NavGroup[] = [
-  { label: "Overview", items: [{ href: "/dashboard", label: "Research overview" }] },
   {
+    n: "00",
+    label: "Overview",
+    items: [{ href: "/dashboard", label: "Research overview" }],
+  },
+  {
+    n: "01",
     label: "Screen",
     items: [
-      { href: "/screening", label: "Drug Screening" },
-      { href: "/candidates", label: "Candidate Explorer" },
+      { href: "/screening", label: "Drug Screening", readout: "predictions" },
+      { href: "/candidates", label: "Candidate Explorer", readout: "models" },
     ],
   },
   {
+    n: "02",
     label: "Explore",
     items: [
-      { href: "/medicines", label: "Drug Details" },
+      { href: "/medicines", label: "Drug Details", readout: "medicines" },
       { href: "/case-study", label: "Case Study" },
-      { href: "/explorer", label: "Medicine × Disease" },
+      { href: "/explorer", label: "Medicine × Condition" },
     ],
   },
   {
+    n: "03",
     label: "Evidence",
     items: [
-      { href: "/molecular", label: "Molecular" },
-      { href: "/docking", label: "Docking & 3D" },
-      { href: "/clinical", label: "Clinical" },
+      { href: "/molecular", label: "Molecular", readout: "structures" },
+      { href: "/docking", label: "Docking & 3D", readout: "docked" },
+      { href: "/clinical", label: "Clinical", readout: "clinical" },
     ],
   },
   {
+    n: "04",
     label: "System",
     items: [
       { href: "/pipeline", label: "Pipeline" },
-      { href: "/models", label: "Models & Dataset" },
+      { href: "/models", label: "Models & Dataset", readout: "models" },
       { href: "/retraining", label: "Retraining" },
-      { href: "/runs", label: "Run History" },
+      { href: "/runs", label: "Run History", readout: "lastRun" },
     ],
+  },
+  {
+    n: null,
+    label: "Future",
+    items: [{ href: "/roadmap", label: "Roadmap", readout: "future" }],
   },
 ];
 
-/** Routes that render inside the application shell (secondary nav visible). */
+export function isCurrent(item: NavItem, pathname: string): boolean {
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+}
+
+/** The group and entry of the current page, for the location bar and markers. */
+export function locate(pathname: string): { group: NavGroup; item: NavItem } | null {
+  for (const group of APP_NAV) {
+    const item = group.items.find((i) => isCurrent(i, pathname));
+    if (item) return { group, item };
+  }
+  return null;
+}
+
+/** Routes that render inside the application frame (index visible). */
 export function isAppRoute(pathname: string): boolean {
   return pathname !== "/";
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { AppShell } from "@/components/shell/AppShell";
 import { getBuildInfo } from "@/lib/queries/build";
+import { getNavReadouts } from "@/lib/queries/nav";
 import "./globals.css";
 
 /**
@@ -54,6 +55,7 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const build = await getBuildInfo();
+  const readouts = await getNavReadouts(build.snapshot);
 
   return (
     <html
@@ -73,7 +75,7 @@ export default async function RootLayout({
           // the database to prove the page was not served from a stale cache.
           <meta name="amr-data-version" content={build.dataVersion} />
         ) : null}
-        <AppShell build={build}>{children}</AppShell>
+        <AppShell build={build} readouts={readouts}>{children}</AppShell>
       </body>
     </html>
   );

@@ -65,32 +65,26 @@ export default async function MolecularPage() {
           <KPI
             value={num(overview.molecules)}
             label="Molecules in the library"
-            source="COUNT(*) in molecules"
           />
           <KPI
             value={num(overview.valid)}
             label="Passed structure validation"
-            source="molecules WHERE is_valid"
           />
           <KPI
             value={num(overview.invalid)}
             label="Rejected by the standardiser"
-            source="molecules WHERE NOT is_valid"
           />
           <KPI
             value={num(overview.withDescriptors)}
             label="Carry computed descriptors"
-            source="molecules WHERE mw IS NOT NULL"
           />
           <KPI
             value={num(overview.distinctScaffolds)}
             label="Distinct Murcko scaffolds"
-            source="COUNT(DISTINCT murcko_scaffold)"
           />
           <KPI
             value={overview.featureVersions.join(", ") || "—"}
             label="Feature versions present"
-            source="DISTINCT feature_version"
           />
         </MetricGrid>
       </Section>

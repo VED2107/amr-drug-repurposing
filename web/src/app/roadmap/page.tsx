@@ -64,23 +64,19 @@ export default async function RoadmapPage() {
         <MetricGrid>
           <KPI
             value={num(notDocked)}
-            label="Medicines not yet docked"
-            source={`${num(coverage.dockedMedicines)} of ${num(coverage.approvedMedicines)} have a stored pose`}
+            label="Medicines not yet docked" note={`${num(coverage.dockedMedicines)} of ${num(coverage.approvedMedicines)} have a stored pose`}
           />
           <KPI
             value={num(notChecked)}
-            label="Medicines not yet queried at the registry"
-            source={`${num(clinical.medicinesQueried)} of ${num(clinical.medicinesTotal)} queried`}
+            label="Medicines not yet queried at the registry" note={`${num(clinical.medicinesQueried)} of ${num(clinical.medicinesTotal)} queried`}
           />
           <KPI
             value={num(clinical.medicinesWithNoResults)}
-            label="Queried and returned nothing"
-            source="no evidence found — not evidence of no effect"
+            label="Queried and returned nothing" note="no evidence found — not evidence of no effect"
           />
           <KPI
             value={num(docking.targets)}
-            label="Receptors prepared"
-            source="one target per modelled pathogen"
+            label="Receptors prepared" note="one target per modelled pathogen"
           />
           <KPI
             value={
@@ -90,12 +86,10 @@ export default async function RoadmapPage() {
                 : `${(worstPhenotype.resistantStrainFraction * 100).toFixed(1)}%`
             }
             label={`Lowest resistant-strain coverage (${worstPhenotype?.label ?? "—"})`}
-            source="bioactivity WHERE strain_specific"
           />
           <KPI
             value={num(coverage.activeModels)}
-            label="Pathogens with a model"
-            source="four — nothing else shows a probability"
+            label="Pathogens with a model" note="four — nothing else shows a probability"
           />
         </MetricGrid>
 

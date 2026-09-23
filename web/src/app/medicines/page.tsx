@@ -80,7 +80,7 @@ export default async function MedicinesPage(props: {
             <div className="flex items-end">
               <button
                 type="submit"
-                className="inline-flex min-h-11 items-center rounded-card border border-ink bg-ink px-4 font-display text-[13px] font-semibold text-paper"
+                className="amr-btn"
               >
                 Search
               </button>

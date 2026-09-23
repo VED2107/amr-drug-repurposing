@@ -65,32 +65,26 @@ export default async function ClinicalPage() {
           <KPI
             value={`${num(overview.medicinesQueried)} / ${num(overview.medicinesTotal)}`}
             label={`Medicines queried${checkedPercent === null ? "" : ` · ${checkedPercent.toFixed(1)}% of the library`}`}
-            source="COUNT(*) in clinical_queries"
           />
           <KPI
             value={num(notChecked)}
             label="Medicines not yet checked"
-            source="library minus clinical_queries"
           />
           <KPI
             value={num(overview.queriesFailed)}
             label="Queries that failed"
-            source="clinical_queries WHERE status <> 'ok'"
           />
           <KPI
             value={num(overview.medicinesWithNoResults)}
             label="Queried and returned nothing"
-            source="clinical_queries WHERE n_results = 0"
           />
           <KPI
             value={num(overview.distinctStudies)}
-            label="Distinct registered studies"
-            source={`COUNT(DISTINCT nct_id) · ${num(overview.trialLinks)} medicine links`}
+            label="Distinct registered studies" note={`${num(overview.trialLinks)} medicine links`}
           />
           <KPI
             value={num(overview.amrRelatedLinks)}
             label="Links matching an AMR keyword"
-            source="clinical_trials WHERE amr_related"
           />
         </MetricGrid>
 

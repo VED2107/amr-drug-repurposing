@@ -53,11 +53,14 @@ const MODELLED_STARTERS = [
 ];
 
 /**
- * Medicine × Disease.
+ * Medicine × Condition (route `/explorer`; titled Medicine × Disease before).
  *
- * The question this page answers is "could this medicine be relevant to this
- * condition?", and the answer is always a rung plus what that rung does not
- * establish. Two rules do the work:
+ * An evidence explorer, not a disease predictor. The question it answers is
+ * "what evidence exists for this medicine and this condition?", and the answer
+ * is always a rung plus what that rung does not establish. The random-forest
+ * models predict activity against four organisms, not against conditions, so
+ * the page shows the mapping explicitly (condition → organism → model) before
+ * any number. Two rules do the work:
  *
  * - The percentage gate. A probability appears only when the condition matches
  *   one of the four modelled bacteria. Every other condition gets documented
@@ -74,6 +77,8 @@ export default async function ExplorerPage(props: {
 
   const pathogens = await getPathogens();
   const labelFor = (key: string) => pathogens.find((p) => p.key === key)?.label ?? key;
+  const fullNameFor = (key: string) => pathogens.find((p) => p.key === key)?.fullName ?? labelFor(key);
+  const activeModelFor = (key: string) => pathogens.find((p) => p.key === key)?.activeModelVersion ?? null;
 
   // A medicine may be given as an InChIKey (from a link) or as a name (typed).
   let moleculeId: string | null = null;
@@ -98,11 +103,11 @@ export default async function ExplorerPage(props: {
 
   return (
     <Page>
-      <Breadcrumb trail={["Dashboard", "Explore", "Medicine × Disease"]} />
+      <Breadcrumb trail={["Dashboard", "Explore", "Medicine × Condition"]} />
       <PageHeader
         eyebrow="Explore"
-        title="Medicine × Disease"
-        lede="Pair one medicine with one condition and see which kind of evidence exists for that pairing — and, just as importantly, which kinds do not."
+        title="Medicine × Condition"
+        lede="Explore the evidence available for one medicine and one condition: registered studies, lab measurements, docking and, only where the condition is caused by one of four modelled bacteria, an AI-predicted activity. This page does not predict whether a medicine treats a condition."
       />
 
       {/* --- The pairing ---------------------------------------------- */}
@@ -120,7 +125,7 @@ export default async function ExplorerPage(props: {
             </Field>
             <Field
               label="Condition"
-              hint="Any condition. Only the four modelled bacteria can produce a probability."
+              hint="Any condition can be explored for evidence. An AI-predicted activity appears only when the condition is caused by MRSA, E. coli, K. pneumoniae or M. tuberculosis."
             >
               <SearchField
                 name="condition"
@@ -135,7 +140,7 @@ export default async function ExplorerPage(props: {
           <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-rule-soft pt-4">
             <button
               type="submit"
-              className="inline-flex min-h-11 items-center rounded-card border border-ink bg-ink px-4 font-display text-[13px] font-semibold text-paper"
+              className="amr-btn"
             >
               Show the evidence
             </button>
@@ -173,7 +178,7 @@ export default async function ExplorerPage(props: {
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div className="border border-rule bg-raised p-4">
               <p className="m-0 mb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                Conditions with a model
+                Conditions caused by a modelled bacterium
               </p>
               <ul className="m-0 flex flex-wrap gap-2 p-0">
                 {MODELLED_STARTERS.map((name) => (
@@ -246,14 +251,20 @@ export default async function ExplorerPage(props: {
             title={`${evidence.medicineName} × ${evidence.condition}`}
             note={evidence.wasChecked ? "the registry was queried" : "never queried"}
           >
+            <MappingChain
+              condition={evidence.condition}
+              organism={modelled === null ? null : fullNameFor(modelled)}
+              modelVersion={modelled === null ? null : evidence.prediction?.modelVersion ?? activeModelFor(modelled)}
+              hasPrediction={modelled !== null && evidence.prediction !== null}
+            />
             {modelled === null ? (
               <WarningCallout title="No model exists for this condition">
                 {NO_MODEL_NOTICE}
               </WarningCallout>
             ) : (
               <div className="border border-rule bg-raised p-5">
-                <p className="m-0 mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-                  This condition matches the {labelFor(modelled)} model
+                <p className="m-0 mb-1 font-mono text-[10px] uppercase tracking-[0.12em] text-computational">
+                  <span aria-hidden="true">▲ </span>Computational · model prediction for the organism
                 </p>
                 {/*
                   The condition and the organism are different things, and the
@@ -282,8 +293,8 @@ export default async function ExplorerPage(props: {
               <div className="flex flex-col gap-4">
                 <dl className="m-0 grid gap-px border border-rule bg-rule sm:grid-cols-2">
                   <div className="bg-raised p-4">
-                    <dt className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-fainter">
-                      Lab measurements
+                    <dt className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-experimental">
+                      <span aria-hidden="true">■ </span>Lab measurements
                     </dt>
                     <dd className="m-0 mt-1 font-mono text-[13px] text-ink">
                       {evidence.measuredRecords === null
@@ -296,8 +307,8 @@ export default async function ExplorerPage(props: {
                     </dd>
                   </div>
                   <div className="bg-raised p-4">
-                    <dt className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-fainter">
-                      Best docking pose
+                    <dt className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-computational">
+                      <span aria-hidden="true">▲ </span>Best docking pose
                     </dt>
                     <dd className="m-0 mt-1 font-mono text-[13px] text-ink">
                       {evidence.bestDocking?.scoreKcalMol == null
@@ -306,8 +317,8 @@ export default async function ExplorerPage(props: {
                     </dd>
                   </div>
                   <div className="bg-raised p-4">
-                    <dt className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-fainter">
-                      Studies naming this condition
+                    <dt className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-clinical">
+                      <span aria-hidden="true">◆ </span>Studies naming this condition
                     </dt>
                     <dd className="m-0 mt-1 font-mono text-[13px] text-ink">
                       {!evidence.wasChecked
@@ -380,7 +391,14 @@ export default async function ExplorerPage(props: {
                   "Modelled pathogen",
                   modelled === null ? "none — no model covers this condition" : labelFor(modelled),
                 ],
-                ["Prediction", evidence.prediction ? `${evidence.prediction.probability} · ${evidence.prediction.modelVersion}` : "none"],
+                [
+                  "AI-predicted activity",
+                  modelled === null
+                    ? "none: no model covers this condition"
+                    : evidence.prediction
+                      ? `${evidence.prediction.probability} from ${evidence.prediction.modelVersion}, against ${fullNameFor(modelled)} (the organism, not the condition)`
+                      : `no stored prediction for this medicine from the ${labelFor(modelled)} model`,
+                ],
                 ["Rung", evidence.rung],
                 [
                   "Registry query",
@@ -406,5 +424,68 @@ export default async function ExplorerPage(props: {
         </div>
       </Section>
     </Page>
+  );
+}
+
+/**
+ * How the chosen condition reaches a model, drawn before any number appears.
+ *
+ * The models know organisms, not conditions. Showing the chain (condition,
+ * organism, model, result) is what stops "AI-predicted activity against
+ * M. tuberculosis" being read as "chance this medicine treats tuberculosis",
+ * and it makes the no-model case a visible dead end rather than a missing box.
+ */
+function MappingChain({
+  condition,
+  organism,
+  modelVersion,
+  hasPrediction,
+}: {
+  condition: string;
+  organism: string | null;
+  modelVersion: string | null;
+  hasPrediction: boolean;
+}) {
+  const steps: { label: string; value: string; italic?: boolean; stop?: boolean }[] =
+    organism === null
+      ? [
+          { label: "Condition", value: condition },
+          { label: "Organism", value: "Not one of the four modelled bacteria", stop: true },
+          { label: "Model", value: "None", stop: true },
+          { label: "Result", value: "No AI-predicted activity is shown", stop: true },
+        ]
+      : [
+          { label: "Condition", value: condition },
+          { label: "Organism", value: organism, italic: true },
+          { label: "Model", value: modelVersion ?? "No ACTIVE model", stop: modelVersion === null },
+          {
+            label: "Result",
+            value: hasPrediction
+              ? "AI-predicted activity against the organism"
+              : "No stored prediction for this medicine",
+            stop: !hasPrediction,
+          },
+        ];
+
+  return (
+    <ol
+      aria-label="How this condition maps to a model"
+      className="m-0 mb-5 grid list-none gap-px overflow-hidden rounded-card border border-rule bg-rule p-0 sm:grid-cols-2 lg:grid-cols-4"
+    >
+      {steps.map((step, i) => (
+        <li key={step.label} className="min-w-0 bg-raised px-4 py-3">
+          <p className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+            {i > 0 ? <span aria-hidden="true">→ </span> : null}
+            {step.label}
+          </p>
+          <p
+            className={`m-0 mt-1 break-words text-[14px] leading-snug ${step.italic ? "italic" : ""}`}
+            style={{ color: step.stop ? "var(--color-rose)" : "var(--color-ink)" }}
+          >
+            {step.value}
+          </p>
+        </li>
+      ))}
+    </ol>
   );
 }

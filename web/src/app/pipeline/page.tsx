@@ -9,6 +9,7 @@ import {
   orDash,
 } from "@/components/primitives";
 import { getDataSources, getPipelineErrors, getStageSummaries } from "@/lib/queries/analysis";
+import { getModelVersions } from "@/lib/queries/core";
 import { STAGES } from "@/lib/content";
 
 /*
@@ -32,10 +33,11 @@ export const dynamic = "force-dynamic";
  * stage confers the authority of that stage.
  */
 export default async function PipelinePage() {
-  const [stages, sources, errors] = await Promise.all([
+  const [stages, sources, errors, activeModels] = await Promise.all([
     getStageSummaries(),
     getDataSources(),
     getPipelineErrors(20),
+    getModelVersions(true),
   ]);
 
   const summaryFor = (name: string) =>
@@ -111,6 +113,57 @@ export default async function PipelinePage() {
         </ol>
       </Section>
 
+      <Section id="new-medicines" title="How a new medicine is scored" note="the update worker">
+        <p className="m-0 max-w-[72ch] text-[14px] leading-relaxed text-ink-2">
+          When a medicine is newly approved, nobody types it in. The update worker — a
+          container that holds the four trained models and nothing else — finds it in the
+          public sources and scores it with the models already in service. The website shows
+          it on the next page request, with no redeploy.
+        </p>
+
+        <ol className="m-0 mt-6 grid list-none gap-px border border-rule bg-rule p-0 md:grid-cols-2 xl:grid-cols-3">
+          {NEW_MEDICINE_STEPS.map((step, i) => (
+            <li key={step.title} className="bg-raised p-5">
+              <p className="m-0 font-mono text-[11px] tabular-nums text-accent">
+                {String(i + 1).padStart(2, "0")}
+              </p>
+              <h3 className="m-0 mt-2 font-display text-[15px] font-semibold tracking-[-0.01em] text-ink">
+                {step.title}
+              </h3>
+              <p className="m-0 mt-2 text-[13px] leading-relaxed text-ink-2">{step.body}</p>
+              {step.title === "Scored" ? (
+                <p className="m-0 mt-3 font-mono text-[11px] leading-[1.7] text-ink">
+                  {activeModels.length > 0
+                    ? activeModels.map((m) => m.modelVersion).join(" · ")
+                    : "no ACTIVE model is published"}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+
+        <dl className="m-0 mt-6 grid gap-x-10 gap-y-1 font-mono text-[11px] sm:grid-cols-2">
+          <div className="flex justify-between gap-3 border-b border-rule-soft py-1.5">
+            <dt className="text-muted">last new-medicine sweep</dt>
+            <dd className="m-0 text-ink">{orDash(summaryFor("update")?.lastRun?.slice(0, 16).replace("T", " ") ?? null)}</dd>
+          </div>
+          <div className="flex justify-between gap-3 border-b border-rule-soft py-1.5">
+            <dt className="text-muted">sweeps recorded</dt>
+            <dd className="m-0 tabular-nums text-ink">{num(summaryFor("update")?.runs ?? 0)}</dd>
+          </div>
+        </dl>
+
+        <div className="mt-6">
+          <LimitationCallout title="What the worker does not do">
+            It never retrains a model: a newly approved medicine is something to score, not
+            something to learn from. It does not dock the medicine or query the clinical trial
+            registry, so a new medicine appears as <strong>not yet docked</strong> and{" "}
+            <strong>not yet checked</strong> until those stages are run — which is not the same
+            as no evidence found. And its predictions are AI-predicted activity, like every
+            other on this site: they do not show that the medicine treats anything.
+          </LimitationCallout>
+        </div>
+      </Section>
       <Section title="Stages as the database records them" note="every stage that has ever run">
         <TableWrap label="Pipeline stages">
           <thead>
@@ -243,3 +296,31 @@ export default async function PipelinePage() {
     </Page>
   );
 }
+
+/** The path a newly approved medicine takes, in the update worker's own order. */
+const NEW_MEDICINE_STEPS: { title: string; body: string }[] = [
+  {
+    title: "Found",
+    body: "The worker reads ChEMBL's approved molecules and the FDA Orange Book. A structure whose InChIKey is not yet published is new. A record without a structure is counted and skipped — never completed from somewhere else.",
+  },
+  {
+    title: "Checked",
+    body: "Before anything is scored, the worker proves it holds the production models: each model file must match its recorded checksum, and 20 published predictions must be reproduced exactly. If either fails, it stops and scores nothing.",
+  },
+  {
+    title: "Standardised",
+    body: "The structure goes through the same standardisation and the same Morgan fingerprint (radius 2, 1,024 bits) that produced every prediction already on this site.",
+  },
+  {
+    title: "Scored",
+    body: "The fingerprint is passed to the four ACTIVE models — one per modelled bacterium — giving four AI-predicted activity values, each labelled with the model version that produced it:",
+  },
+  {
+    title: "Published",
+    body: "The medicine, its approved products and its four predictions are written to the database together, one medicine at a time. Running the worker again adds nothing twice.",
+  },
+  {
+    title: "Shown",
+    body: "The write changes the data version every page is read at, so the next request shows the new medicine everywhere at once — in screening, in its own record and in the counts above.",
+  },
+];

@@ -54,7 +54,7 @@ export default function Error({
           <button
             type="button"
             onClick={reset}
-            className="inline-flex min-h-11 items-center rounded-card border border-ink bg-ink px-4 font-display text-[13px] font-semibold text-paper"
+            className="amr-btn"
           >
             Try again
           </button>

@@ -135,7 +135,7 @@ export default async function CandidatesPage(props: {
           <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-rule-soft pt-4">
             <button
               type="submit"
-              className="inline-flex min-h-11 items-center rounded-card border border-ink bg-ink px-4 font-display text-[13px] font-semibold text-paper"
+              className="amr-btn"
             >
               Search
             </button>

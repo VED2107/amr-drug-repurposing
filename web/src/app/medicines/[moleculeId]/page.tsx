@@ -528,7 +528,7 @@ export default async function MedicineDetailPage(props: {
             <LimitationCallout title="The rung is for the medicine, not for a pairing">
               This classifies the records that exist for the medicine overall. A pairing
               of one medicine with one condition is graded separately — see{" "}
-              <Link href="/explorer">Medicine × Disease</Link>, where a study for an
+              <Link href="/explorer">Medicine × Condition</Link>, where a study for an
               unrelated indication does not count as clinical evidence.
             </LimitationCallout>
           </div>

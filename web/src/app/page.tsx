@@ -64,7 +64,7 @@ export default async function OverviewPage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/explorer"
-                className="inline-flex min-h-12 items-center rounded-card bg-ink px-5 font-display text-[14px] text-paper no-underline transition-colors hover:bg-link"
+                className="amr-btn min-h-12 px-5 text-[14px]"
               >
                 Explore the evidence
               </Link>
@@ -371,18 +371,18 @@ export default async function OverviewPage() {
         </div>
 
         <div className="amr-stagger grid gap-px border border-rule bg-rule sm:grid-cols-2 xl:grid-cols-3">
-          <Count value={num(coverage.approvedMedicines)} label="Approved medicines with a structure" source="COUNT(DISTINCT molecule_id) in drugs" />
-          <Count value={num(coverage.validStructures)} label="Valid molecular structures" source="molecules WHERE is_valid" />
-          <Count value={num(coverage.distinctStudies)} label="Distinct registered studies" source={`clinical_trials · ${num(coverage.trialLinks)} links`} />
-          <Count value={num(coverage.storedPoses)} label="Stored docking poses" source="docking_results WHERE status = 'ok'" />
-          <Count value={num(coverage.labelledBioactivity)} label="Labelled bioactivity records" source="bioactivity WHERE label IS NOT NULL" />
-          <Count value={num(coverage.activePredictions)} label="Predictions from ACTIVE models" source={`${coverage.activeModels} ACTIVE model versions`} />
+          <Count value={num(coverage.approvedMedicines)} label="Approved medicines with a structure" />
+          <Count value={num(coverage.validStructures)} label="Valid molecular structures" />
+          <Count value={num(coverage.distinctStudies)} label="Distinct registered studies" note={`${num(coverage.trialLinks)} medicine links`} />
+          <Count value={num(coverage.storedPoses)} label="Stored docking poses" />
+          <Count value={num(coverage.labelledBioactivity)} label="Labelled bioactivity records" />
+          <Count value={num(coverage.activePredictions)} label="Predictions from ACTIVE models" note={`${coverage.activeModels} ACTIVE model versions`} />
         </div>
 
         <div className="mt-10 flex flex-wrap gap-3">
           <Link
             href="/dashboard"
-            className="inline-flex min-h-12 items-center rounded-card bg-ink px-5 font-display text-[14px] text-paper no-underline transition-colors hover:bg-link"
+            className="amr-btn min-h-12 px-5 text-[14px]"
           >
             Open the dashboard
           </Link>
@@ -405,14 +405,14 @@ export default async function OverviewPage() {
   );
 }
 
-function Count({ value, label, source }: { value: string; label: string; source: string }) {
+function Count({ value, label, note }: { value: string; label: string; note?: string }) {
   return (
     <div className="amr-rise bg-raised p-5 md:p-6">
       <p className="m-0 font-mono text-[clamp(22px,2.4vw,32px)] font-medium tabular-nums leading-none text-ink">
         {value}
       </p>
       <p className="m-0 mt-3 text-[13px] leading-snug text-ink-2">{label}</p>
-      <p className="m-0 mt-2 font-mono text-[10px] leading-snug text-fainter">{source}</p>
+      {note ? <p className="m-0 mt-2 font-mono text-[10px] leading-snug text-muted">{note}</p> : null}
     </div>
   );
 }

@@ -233,7 +233,7 @@ export interface ConditionOption {
 /**
  * The conditions this medicine's registered studies actually name.
  *
- * Offered as starting points in the Medicine × Disease explorer so that a
+ * Offered as starting points in the Medicine × Condition explorer so that a
  * reader picks from what exists rather than typing a condition and reading an
  * empty result as a negative finding.
  */

@@ -68,10 +68,13 @@ export function Section({
   note,
   children,
   reveal = false,
+  id,
 }: {
   title: string;
   note?: string;
   children: ReactNode;
+  /** Anchor, for linking straight to this section. */
+  id?: string;
   /**
    * Arrive on scroll. Only the narrative surfaces set this: a section of a
    * working table should already be there when the reader gets to it.
@@ -79,7 +82,7 @@ export function Section({
   reveal?: boolean;
 }) {
   return (
-    <section className={reveal ? "amr-rise mb-12" : "mb-12"}>
+    <section id={id} className={`scroll-mt-[calc(var(--header-h)+1rem)] ${reveal ? "amr-rise mb-12" : "mb-12"}`}>
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3 border-b border-rule-soft pb-2">
         <h2 className="m-0 font-display text-[clamp(19px,2vw,26px)] font-semibold tracking-[-0.01em] text-ink">
           {title}
@@ -96,20 +99,21 @@ export function Section({
 /* ------------------------------------------------------------------ */
 
 /**
- * One counted figure with its meaning and its source.
+ * One counted figure and its meaning.
  *
- * `source` is required. A number on this site is always traceable to the query
- * that produced it, and making the prop mandatory is what stops a figure
- * appearing without one.
+ * `note` is optional plain-language context ("49,647 medicine links"). The SQL
+ * behind each figure used to be printed here; it was taken off the page because
+ * readers are not querying the database. Every figure is still traceable — to
+ * the named query in `src/lib/queries` that produced it — and none is typed in.
  */
 export function KPI({
   value,
   label,
-  source,
+  note,
 }: {
   value: string;
   label: string;
-  source: string;
+  note?: string;
 }) {
   return (
     <div className="border-t border-rule-strong pt-3">
@@ -117,7 +121,7 @@ export function KPI({
         {value}
       </p>
       <p className="m-0 mt-2 text-[13px] leading-snug text-ink-2">{label}</p>
-      <p className="m-0 mt-1.5 font-mono text-[10px] leading-snug text-fainter">{source}</p>
+      {note ? <p className="m-0 mt-1.5 font-mono text-[10px] leading-snug text-muted">{note}</p> : null}
     </div>
   );
 }

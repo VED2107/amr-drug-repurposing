@@ -190,7 +190,7 @@ export function SearchField({
               take(list[active]);
             }
           }}
-          className="min-h-11 w-full rounded-card border border-rule-strong bg-pure py-2.5 pl-3 pr-9 font-mono text-[12px] text-ink outline-none focus:border-link focus:shadow-[0_0_0_3px_rgba(55,48,163,0.12)]"
+          className="min-h-11 w-full rounded-card border border-rule-strong bg-pure py-2.5 pl-3 pr-9 font-mono text-[12px] text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(180,83,9,0.14)]"
         />
 
         {term ? (

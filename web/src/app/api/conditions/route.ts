@@ -5,7 +5,7 @@ import { getConditionSuggestions } from "@/lib/queries/analysis";
 export const dynamic = "force-dynamic";
 
 /**
- * Condition lookup for the Medicine × Disease search.
+ * Condition lookup for the Medicine × Condition search.
  *
  * Suggestions come from conditions that registered studies in this database
  * actually name, plus the four modelled bacteria. A condition absent from the

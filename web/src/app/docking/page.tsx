@@ -88,32 +88,26 @@ export default async function DockingPage(props: {
           <KPI
             value={`${num(library.dockedMedicines)} / ${num(library.approvedMedicines)}`}
             label={`Medicines with at least one stored pose${dockedPercent === null ? "" : ` · ${dockedPercent.toFixed(1)}% of the library`}`}
-            source="COUNT(DISTINCT molecule_id) in docking_results"
           />
           <KPI
             value={num(coverage.poses)}
             label="Stored poses"
-            source="docking_results WHERE status = 'ok'"
           />
           <KPI
             value={num(coverage.ligandTargetPairs)}
             label="Ligand–target pairs docked"
-            source="DISTINCT (molecule_id, target_key)"
           />
           <KPI
             value={num(coverage.targets)}
             label="Prepared receptors"
-            source="COUNT(*) in targets"
           />
           <KPI
             value={num(coverage.runs)}
             label="Docking runs recorded"
-            source="COUNT(*) in docking_runs"
           />
           <KPI
             value={num(coverage.atOrBelowTarget)}
-            label={`Pairs whose best pose reaches ${DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol`}
-            source="best pose per (molecule, target)"
+            label={`Pairs whose best pose reaches ${DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol`} note="best pose per medicine and target"
           />
         </MetricGrid>
 

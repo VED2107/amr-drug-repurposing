@@ -89,32 +89,26 @@ export default async function ModelsPage() {
           <KPI
             value={num(active.length)}
             label="ACTIVE — serving predictions"
-            source="model_versions WHERE status = 'ACTIVE'"
           />
           <KPI
             value={num(byStatus.CANDIDATE ?? 0)}
             label="CANDIDATE — trained, not promoted"
-            source="model_versions WHERE status = 'CANDIDATE'"
           />
           <KPI
             value={num((byStatus.ARCHIVED ?? 0) + (byStatus.REJECTED ?? 0))}
             label="ARCHIVED or REJECTED"
-            source="model_versions by status"
           />
           <KPI
             value={num(datasets.length)}
             label="Dataset versions"
-            source="COUNT(*) in dataset_versions"
           />
           <KPI
             value={orDash(active[0]?.datasetVersion ?? null)}
             label="Dataset behind the ACTIVE models"
-            source="model_versions.dataset_version"
           />
           <KPI
             value={orDash(active[0]?.featureVersion ?? null)}
             label="Feature version"
-            source="model_versions.feature_version"
           />
         </MetricGrid>
       </Section>

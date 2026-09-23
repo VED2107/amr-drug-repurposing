@@ -614,7 +614,7 @@ export default async function CaseStudyPage() {
         <p className="m-0 mt-5 max-w-[72ch] text-[13px] leading-relaxed text-ink-2">
           The same evidence for any other medicine is on{" "}
           <Link href="/medicines">Drug Details</Link>, and the rung a given pairing sits on
-          is explained in <Link href="/explorer">Medicine × Disease</Link>.
+          is explained in <Link href="/explorer">Medicine × Condition</Link>.
         </p>
       </Section>
 

@@ -72,32 +72,26 @@ export default async function RetrainingPage() {
           <KPI
             value={num(trainRuns.length)}
             label="Training runs recorded"
-            source="pipeline_runs WHERE stage = 'train'"
           />
           <KPI
             value={num(predictRuns.length)}
             label="Inference runs recorded"
-            source="pipeline_runs WHERE stage = 'predict'"
           />
           <KPI
             value={num(models.length)}
             label="Model versions in the registry"
-            source="COUNT(*) in model_versions"
           />
           <KPI
             value={num(active.length)}
             label="Currently ACTIVE"
-            source="model_versions WHERE status = 'ACTIVE'"
           />
           <KPI
             value={num(superseded.length)}
             label="Superseded, rejected or archived"
-            source="model_versions WHERE status <> 'ACTIVE'"
           />
           <KPI
             value={num(datasets.length)}
             label="Dataset versions built"
-            source="COUNT(*) in dataset_versions"
           />
         </MetricGrid>
       </Section>
