@@ -285,135 +285,92 @@ table {
 /*
   The liquid transition.
 
-  The old page drains: a waterline with a moving ripple travels down it until
-  nothing is left, while the page itself blurs and sinks slightly, the way
-  something looks through water that is running off it. The new page is already
-  behind it and is revealed by a second waterline rising, so the two read as one
-  surface changing level rather than as two pages swapping.
+  The new page rises over the old one like water filling a glass. Its leading
+  edge is a real curve: an SVG wave used as a mask, tiled seamlessly, that
+  travels sideways while it climbs. Just ahead of the surface runs a thin,
+  half-transparent wash (a second wave, out of phase, drifting the other way),
+  which is what a waterline looks like up close. Behind it the new page
+  arrives slightly blurred and a few pixels low, and clears as the surface
+  settles: the refraction of looking through water that is still moving.
 
-  The ripple is a `clip-path: polygon()` with a fixed vertex count — the browser
-  interpolates between the keyframes vertex by vertex, and shifting the phase
-  between keyframes is what makes the edge travel sideways as it moves, which is
-  what sells it as liquid rather than as a wipe.
+  The old page does not drain or vanish. It stays where it is and settles a
+  little under the water, because a rising surface covers things rather than
+  erasing them.
 
-  Cost: clip-path and filter on two full-page snapshots. That is affordable
-  because it happens once per navigation and nothing else is animating.
+  The waterline's position is animated from script (PageTransition.tsx), which
+  can measure where the page sits on screen; CSS here holds the mask layers and
+  the refraction. 720ms, no delay, on a decelerating curve: it runs once per
+  page change, so it may be felt but must not be waited for.
 */
 
-@keyframes amr-drain {
-  0% {
-    opacity: 1;
-    filter: blur(0) saturate(1);
-    transform: scale(1);
-    clip-path: polygon(
-      0% 0%, 12.5% 0%, 25% 0%, 37.5% 0%, 50% 0%, 62.5% 0%, 75% 0%, 87.5% 0%, 100% 0%,
-      100% 100%, 0% 100%
-    );
+:root {
+  --amr-liquid-duration: 720ms;
+  --amr-liquid-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --amr-wet: color-mix(in oklab, var(--color-paper) 88%, var(--color-accent));
+  --amr-water: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 200' preserveAspectRatio='none'%3E%3Cpath fill='black' fill-opacity='1' d='M0 100 C200 84 400 84 600 100 C800 116 1000 116 1200 100 V200 H0Z'/%3E%3C/svg%3E");
+  --amr-wash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 200' preserveAspectRatio='none'%3E%3Cpath fill='black' fill-opacity='0.42' d='M0 90 C200 106 400 106 600 90 C800 74 1000 74 1200 90 V200 H0Z'/%3E%3C/svg%3E");
+}
+
+@keyframes amr-settle {
+  from {
+    transform: none;
+    filter: none;
   }
-  35% {
-    opacity: 1;
-    filter: blur(2px) saturate(1.06);
-    clip-path: polygon(
-      0% 30%, 12.5% 26%, 25% 33%, 37.5% 27%, 50% 34%, 62.5% 28%, 75% 35%, 87.5% 29%, 100% 32%,
-      100% 100%, 0% 100%
-    );
-  }
-  70% {
-    opacity: 0.85;
-    filter: blur(5px) saturate(1.1);
-    clip-path: polygon(
-      0% 70%, 12.5% 76%, 25% 69%, 37.5% 77%, 50% 70%, 62.5% 78%, 75% 71%, 87.5% 77%, 100% 72%,
-      100% 100%, 0% 100%
-    );
-  }
-  100% {
-    opacity: 0;
-    filter: blur(9px) saturate(1.12);
-    transform: scale(1.01);
-    clip-path: polygon(
-      0% 108%, 12.5% 104%, 25% 110%, 37.5% 105%, 50% 111%, 62.5% 104%, 75% 110%, 87.5% 105%, 100% 108%,
-      100% 100%, 0% 100%
-    );
+  to {
+    transform: translateY(-4px) scale(0.992);
+    filter: blur(1.5px);
   }
 }
 
-@keyframes amr-flood {
+/*
+  The water body is paper that starts a shade darker, wet, and dries to the
+  page colour as the surface settles. The tone is what makes the waterline
+  visible against a page of the same paper; filters apply before the mask, so
+  the blur softens the content while the wave's edge stays crisp.
+*/
+@keyframes amr-refract {
   0% {
-    opacity: 0.35;
-    filter: blur(16px) saturate(1.18);
-    transform: scale(1.035) translate3d(var(--amr-enter-shift, 0), 14px, 0);
-    clip-path: polygon(
-      0% 104%, 12.5% 110%, 25% 103%, 37.5% 109%, 50% 102%, 62.5% 108%, 75% 103%, 87.5% 109%, 100% 104%,
-      100% 100%, 0% 100%
-    );
+    transform: translateY(14px);
+    filter: blur(5px) saturate(1.08);
+    background-color: var(--amr-wet);
   }
-  35% {
-    opacity: 0.9;
-    filter: blur(9px) saturate(1.12);
-    clip-path: polygon(
-      0% 62%, 12.5% 55%, 25% 63%, 37.5% 56%, 50% 64%, 62.5% 55%, 75% 62%, 87.5% 57%, 100% 63%,
-      100% 100%, 0% 100%
-    );
-  }
-  68% {
-    opacity: 1;
-    filter: blur(4px) saturate(1.06);
-    transform: scale(1.012) translate3d(0, 4px, 0);
-    clip-path: polygon(
-      0% 18%, 12.5% 24%, 25% 16%, 37.5% 23%, 50% 15%, 62.5% 22%, 75% 17%, 87.5% 23%, 100% 18%,
-      100% 100%, 0% 100%
-    );
-  }
-  88% {
-    filter: blur(1px) saturate(1.02);
-    clip-path: polygon(
-      0% 0%, 12.5% 3%, 25% 0%, 37.5% 3%, 50% 0%, 62.5% 2%, 75% 0%, 87.5% 3%, 100% 0%,
-      100% 100%, 0% 100%
-    );
+  55% {
+    filter: blur(1.5px) saturate(1.03);
   }
   100% {
-    opacity: 1;
-    filter: blur(0) saturate(1);
-    transform: scale(1) translate3d(0, 0, 0);
-    clip-path: polygon(
-      0% 0%, 12.5% 0%, 25% 0%, 37.5% 0%, 50% 0%, 62.5% 0%, 75% 0%, 87.5% 0%, 100% 0%,
-      100% 100%, 0% 100%
-    );
+    transform: none;
+    filter: none;
+    background-color: var(--color-paper);
   }
 }
 
 ::view-transition-old(.amr-forward),
 ::view-transition-old(.amr-back),
 ::view-transition-old(.amr-cross) {
-  animation: 620ms cubic-bezier(0.55, 0, 0.35, 1) both amr-drain;
+  animation: var(--amr-liquid-duration) cubic-bezier(0.77, 0, 0.175, 1) both amr-settle;
   transform-origin: center top;
 }
 
 ::view-transition-new(.amr-forward),
 ::view-transition-new(.amr-back),
 ::view-transition-new(.amr-cross) {
-  animation: 900ms cubic-bezier(0.22, 1, 0.3, 1) 160ms both amr-flood;
-  transform-origin: center bottom;
+  /* The wave strip, the wash just ahead of it, and a solid body beneath the
+     strip. Script moves all three; left alone, the solid layer covers the
+     whole page and the transition is a plain refraction settle. */
+  -webkit-mask-image: var(--amr-water), var(--amr-wash), linear-gradient(#000, #000);
+  mask-image: var(--amr-water), var(--amr-wash), linear-gradient(#000, #000);
+  -webkit-mask-repeat: repeat-x, repeat-x, no-repeat;
+  mask-repeat: repeat-x, repeat-x, no-repeat;
+  /* Opaque, so the water covers the old page instead of showing it through. */
+  background-color: var(--color-paper);
+  animation: var(--amr-liquid-duration) var(--amr-liquid-ease) both amr-refract;
 }
 
-/* The new page is the surface rising; the old one is what is running off it,
-   so the old snapshot stays on top until it has drained. */
+/* The new page is the surface rising, so it is drawn above the old one. */
 ::view-transition-group(.amr-forward),
 ::view-transition-group(.amr-back),
 ::view-transition-group(.amr-cross) {
-  animation-duration: 900ms;
-}
-
-/* Direction only tilts the arrival slightly. The vertical waterline carries the
-   transition; a large sideways shift would fight it. */
-::view-transition-new(.amr-forward) {
-  --amr-enter-shift: 26px;
-}
-::view-transition-new(.amr-back) {
-  --amr-enter-shift: -26px;
-}
-::view-transition-new(.amr-cross) {
-  --amr-enter-shift: 0px;
+  animation-duration: var(--amr-liquid-duration);
 }
 
 /*
