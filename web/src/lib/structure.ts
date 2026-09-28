@@ -72,6 +72,12 @@ interface RenderOptions {
   height?: number;
   /** Stereocentre labels. Off for small scaffold thumbnails, on for a lead figure. */
   annotateStereo?: boolean;
+  /**
+   * For a standalone image file rather than inline markup: carbon gets a fixed
+   * ink colour (an <img> cannot inherit `currentColor`), and the markup is
+   * compacted, since nothing reads it but the browser.
+   */
+  standalone?: boolean;
 }
 
 /** Depictions are deterministic for a given SMILES, so one render per input is enough. */
@@ -93,7 +99,8 @@ export async function renderStructure(
   const width = options.width ?? 460;
   const height = options.height ?? 320;
   const annotateStereo = options.annotateStereo ?? true;
-  const key = `${width}x${height}:${annotateStereo ? "s" : "-"}:${source}`;
+  const standalone = options.standalone ?? false;
+  const key = `${width}x${height}:${annotateStereo ? "s" : "-"}:${standalone ? "f" : "i"}:${source}`;
 
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
@@ -116,7 +123,7 @@ export async function renderStructure(
               atomColourPalette: ATOM_COLOURS,
             }),
           );
-          result = { svg: cleanSvg(raw), width, height };
+          result = { svg: standalone ? compactSvg(cleanSvg(raw)) : cleanSvg(raw), width, height };
         }
       } finally {
         mol.delete();
@@ -148,5 +155,23 @@ function cleanSvg(raw: string): string {
     .replace(/\sheight='\d+px'/, "")
     .replace(new RegExp(CARBON_SENTINEL, "gi"), "currentColor")
     .replace(/#000000/gi, "currentColor")
+    .trim();
+}
+
+/** The page's ink, for a depiction served as its own file. */
+const INK = "#12130f";
+
+/**
+ * A depiction as a file: fixed ink instead of `currentColor`, coordinates to
+ * one decimal (a tenth of a pixel is below what any screen can show), and no
+ * comments, class names or whitespace between tags. Roughly halves the bytes.
+ */
+function compactSvg(svg: string): string {
+  return svg
+    .replace(/currentColor/g, INK)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/\sclass='[^']*'/g, "")
+    .replace(/(\d+\.\d)\d+/g, "$1")
+    .replace(/>\s+</g, "><")
     .trim();
 }

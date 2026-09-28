@@ -302,10 +302,19 @@ describe("a medicine opens with its own four predictions", () => {
       select d.molecule_id from drugs d join molecules m on m.molecule_id = d.molecule_id
        where lower(d.generic_name) = 'levoketoconazole' and m.is_valid limit 1`;
     const page = await html(`/investigate/${self.molecule_id}?p=mtb`);
-    assert.ok(page.includes('aria-label="Chemical structure of Levoketoconazole"'), "own structure is drawn");
-    const drawn = (page.match(/aria-label="Chemical structure of /g) ?? []).length;
+    assert.ok(page.includes('alt="Chemical structure of Levoketoconazole"'), "own structure is drawn");
+    const drawn = (page.match(/alt="Chemical structure of /g) ?? []).length;
     assert.ok(drawn >= 2, "listed medicines carry their structures too");
-    assert.ok(page.includes("<svg"), "the drawing is inline SVG");
+
+    // The drawing is served as a cacheable image, not inlined into the page.
+    const res = await fetch(`${BASE_URL}/api/structure/${self.molecule_id}?size=lg`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /image\/svg\+xml/);
+    assert.match(res.headers.get("cache-control") ?? "", /public/);
+    assert.ok((await res.text()).includes("<svg"), "the image is an SVG drawing");
+
+    const missing = await fetch(`${BASE_URL}/api/structure/NOT-A-REAL-KEY?size=sm`);
+    assert.equal(missing.status, 404, "no structure is a 404, never a stand-in drawing");
   });
 
   it("lists other medicines above the floor, excluding itself, and each one opens", async () => {
@@ -449,9 +458,19 @@ describe("documented evidence links to its source", () => {
                 b.document_year desc, b.assay_chembl_id
        limit 1`;
     const page = await html(`/investigate/${rec.molecule_id}`);
-    assert.ok(page.includes(`/chembl/explore/assay/${rec.assay_chembl_id}`), "assay link");
-    assert.ok(page.includes(`/chembl/explore/document/${rec.document_chembl_id}`), "publication link");
     assert.ok(page.includes("/chembl/explore/compound/CHEMBL8"), "compound link");
+    assert.ok(/laboratory records, with sources/.test(page), "the records panel is offered");
+
+    // The rows load when the panel is opened; they are the database's rows.
+    const res = await fetch(`${BASE_URL}/api/lab-records/${rec.molecule_id}`);
+    assert.equal(res.status, 200);
+    const rows = await res.json();
+    const [total] = await sql`
+      select count(*) as n from bioactivity
+       where molecule_id = ${rec.molecule_id} and label is not null`;
+    assert.equal(rows.length, Math.min(150, Number(total.n)), "one row per record, capped at 150");
+    assert.equal(rows[0].assayId, rec.assay_chembl_id, "same first record as the database");
+    assert.equal(rows[0].documentId, rec.document_chembl_id, "with its publication");
   });
 
   it("a docking result links to the protein structure it used", async () => {

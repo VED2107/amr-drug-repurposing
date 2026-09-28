@@ -45,6 +45,16 @@ const nextConfig: NextConfig = {
     "better-sqlite3",
   ],
 
+  experimental: {
+    /*
+      Keep a visited result in the browser's router cache for 30 seconds, so
+      going from a condition to a medicine and back does not ask the server
+      again. The data changes only when the research pipeline publishes, and a
+      fresh request always reads the current data version.
+    */
+    staleTimes: { dynamic: 30 },
+  },
+
   async redirects() {
     return [
       { source: "/medicines/:moleculeId", destination: "/investigate/:moleculeId", permanent: false },

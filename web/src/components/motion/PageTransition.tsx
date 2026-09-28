@@ -154,7 +154,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
   if (!animate) return <>{children}</>;
 
   return (
-    <ViewTransition enter={DIRECTIONAL} exit={DIRECTIONAL} default="none" onEnter={riseWaterline}>
+    <ViewTransition enter={DIRECTIONAL} exit="none" default="none" onEnter={riseWaterline}>
       {children}
     </ViewTransition>
   );

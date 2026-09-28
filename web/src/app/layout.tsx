@@ -15,20 +15,24 @@ import "./globals.css";
  * made it emit one source entry per weight — which the bundler on the
  * deployment host could not resolve, failing the build on a font rather than on
  * anything to do with the site. Shipping the variable files removes the
- * network from the build entirely and gives the full weight axis instead of
- * five fixed stops. All three are licensed under the SIL Open Font License.
+ * network from the build entirely and gives a continuous weight axis instead
+ * of five fixed stops. All three are licensed under the SIL Open Font License.
+ *
+ * The files are trimmed to what the site uses: weights 400 to 700, and
+ * Bricolage fixed at its normal width (its condensed range was never used).
+ * That took the four files from 378 KB to 254 KB with no visible change.
  */
 const display = localFont({
   src: "./fonts/BricolageGrotesque.woff2",
-  weight: "200 800",
+  weight: "400 700",
   variable: "--font-display-loaded",
   display: "swap",
 });
 
 const body = localFont({
   src: [
-    { path: "./fonts/Literata.woff2", style: "normal", weight: "200 900" },
-    { path: "./fonts/LiterataItalic.woff2", style: "italic", weight: "200 900" },
+    { path: "./fonts/Literata.woff2", style: "normal", weight: "400 700" },
+    { path: "./fonts/LiterataItalic.woff2", style: "italic", weight: "400 700" },
   ],
   variable: "--font-body-loaded",
   display: "swap",
@@ -36,7 +40,7 @@ const body = localFont({
 
 const mono = localFont({
   src: "./fonts/GeistMono.woff2",
-  weight: "100 900",
+  weight: "400 700",
   variable: "--font-mono-loaded",
   display: "swap",
 });

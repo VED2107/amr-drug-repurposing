@@ -13,9 +13,10 @@ import {
   StudyList,
   STUDY_NOTE,
 } from "@/components/investigate";
+import { LabRecords } from "@/components/investigate/LabRecords";
 import { StructureFigure } from "@/components/molecular/StructureFigure";
 import { Page } from "@/components/primitives";
-import { formatUnits, medicineName } from "@/lib/format";
+import { medicineName } from "@/lib/format";
 import {
   getBrandsForMolecule,
   getMeasuredCountsByPathogen,
@@ -28,7 +29,6 @@ import {
   countStudiesForMedicine,
   getBestDocking,
   getCandidates,
-  getLabRecords,
   getStereoisomerInTraining,
   getStructureSmiles,
   getStudies,
@@ -40,7 +40,7 @@ import {
   DOCKING_SCREENING_TARGET_KCAL_MOL,
 } from "@/lib/science";
 import { isPathogenKey, PATHOGEN_KEYS, type PathogenKey } from "@/lib/types";
-import { chemblAssay, chemblCompound, chemblDocument, pdbStructure } from "@/lib/links";
+import { chemblCompound, pdbStructure } from "@/lib/links";
 import { firstValue, numberParam, withParams, type RawSearchParams } from "@/lib/url";
 
 export const dynamic = "force-dynamic";
@@ -60,13 +60,23 @@ export default async function MedicinePage(props: {
   const moleculeId = decodeURIComponent(raw);
   const params = await props.searchParams;
 
-  const medicine = await getMedicineByMoleculeId(moleculeId);
-  if (!medicine) notFound();
-
   const studyCondition = (firstValue(params, "sc") ?? "").trim();
+  const chosen = firstValue(params, "p");
+  const candidatePage = numberParam(params, "cp") ?? 1;
+  // When the reader has picked a bacterium, its list does not wait for the
+  // medicine's own predictions and can start with everything else.
+  const early = isPathogenKey(chosen)
+    ? getCandidates({ pathogenKey: chosen, exclude: moleculeId, page: candidatePage })
+    : null;
+  // Marked handled now; if it fails, the `await` below still rethrows.
+  early?.catch(() => undefined);
 
-  const [brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal, smiles, labRecords] =
+  // Every read that does not depend on another starts at once: one round trip
+  // to the database for the whole page, not one for the medicine and another
+  // for everything else.
+  const [medicine, brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal, smiles] =
     await Promise.all([
+      getMedicineByMoleculeId(moleculeId),
       getBrandsForMolecule(moleculeId),
       getPathogens(),
       getPredictionsForMolecule(moleculeId),
@@ -82,8 +92,8 @@ export default async function MedicinePage(props: {
       }),
       countStudiesForMedicine(moleculeId),
       getStructureSmiles(moleculeId),
-      getLabRecords(moleculeId),
     ]);
+  if (!medicine) notFound();
 
   const label = (key: PathogenKey) => pathogens.find((p) => p.key === key)?.label ?? key;
   const predictionFor = (key: PathogenKey) => predictions.find((p) => p.pathogenKey === key) ?? null;
@@ -96,12 +106,13 @@ export default async function MedicinePage(props: {
         (predictionFor(a)?.probability ?? 0) >= (predictionFor(b)?.probability ?? 0) ? a : b,
       )
     : null;
-  const chosen = firstValue(params, "p");
   const focus: PathogenKey | null = isPathogenKey(chosen) ? chosen : highest;
 
-  const candidates = focus
-    ? await getCandidates({ pathogenKey: focus, exclude: moleculeId, page: numberParam(params, "cp") ?? 1 })
-    : null;
+  const candidates = early
+    ? await early
+    : focus
+      ? await getCandidates({ pathogenKey: focus, exclude: moleculeId, page: candidatePage })
+      : null;
 
   const path = `/investigate/${encodeURIComponent(moleculeId)}`;
   const n = (v: number) => v.toLocaleString("en-GB");
@@ -141,7 +152,7 @@ export default async function MedicinePage(props: {
             />
           </dl>
         </div>
-        <StructureFigure smiles={smiles} label={name} width={420} height={300} />
+        <StructureFigure moleculeId={moleculeId} hasStructure={smiles !== null} label={name} priority />
       </header>
 
       {/* --- AI-predicted activity ---------------------------------- */}
@@ -233,46 +244,12 @@ export default async function MedicinePage(props: {
               {clinical.checked && studyTotal > 0 ? <Link href="#studies">Registered studies below</Link> : null}
             </div>
 
-            {labRecords.length > 0 ? (
-              <details className="group mt-4">
-                <summary className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[13px] font-medium text-ink">
-                  {labTotal > labRecords.length
-                    ? `Show the latest ${n(labRecords.length)} of ${n(labTotal)} laboratory records, with sources`
-                    : `Show the ${n(labRecords.length)} laboratory ${labRecords.length === 1 ? "record" : "records"}, with sources`}
-                </summary>
-                <ul className="m-0 mt-2 max-h-[420px] list-none overflow-y-auto rounded-card border border-rule p-0">
-                  {labRecords.map((r, i) => (
-                    <li key={`${r.assayId}-${i}`} className="grid gap-x-4 gap-y-1 border-b border-rule-soft px-3 py-2.5 text-[12px] leading-snug last:border-b-0 md:grid-cols-[8rem_minmax(0,1fr)_11rem_auto]">
-                      <span className="font-medium text-ink">{label(r.pathogenKey)}</span>
-                      <span className="text-ink-2">{r.assayDescription ?? "Assay description not recorded"}</span>
-                      <span className="font-mono tabular-nums text-ink">
-                        {r.activityType ?? "Value"} {r.relation && r.relation !== "=" ? r.relation : ""}
-                        {r.value ?? "—"} {formatUnits(r.units)}
-                        <span className={`ml-1.5 font-sans ${r.label === 1 ? "text-experimental" : "text-muted"}`}>
-                          {r.label === 1 ? "active" : "inactive"}
-                        </span>
-                      </span>
-                      <span className="flex flex-wrap gap-x-3">
-                        {r.assayId ? (
-                          <a href={chemblAssay(r.assayId)} target="_blank" rel="noreferrer">
-                            Assay ↗
-                          </a>
-                        ) : null}
-                        {r.documentId ? (
-                          <a href={chemblDocument(r.documentId)} target="_blank" rel="noreferrer">
-                            Source{r.year ? ` ${r.year}` : ""} ↗
-                          </a>
-                        ) : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="m-0 mt-2 text-[12px] text-muted">
-                  {labTotal > labRecords.length ? "Every record is in ChEMBL, linked above. " : ""}
-                  &ldquo;Active&rdquo; means the measured value reached this project&rsquo;s laboratory
-                  cutoff (10&nbsp;µM or stronger). A laboratory result does not show an effect in patients.
-                </p>
-              </details>
+            {labTotal > 0 ? (
+              <LabRecords
+                moleculeId={moleculeId}
+                total={labTotal}
+                pathogenLabels={Object.fromEntries(pathogens.map((p) => [p.key, p.label]))}
+              />
             ) : null}
           </DocumentedBlock>
 

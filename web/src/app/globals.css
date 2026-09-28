@@ -63,6 +63,9 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* Reserve the scrollbar's space from the first paint, so the layout never
+     shifts sideways when a page grows tall enough to scroll. */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -264,6 +267,15 @@ table {
   pointer-events: none;
 }
 
+/*
+  While a transition runs, its overlay spans the whole window including the
+  scrollbar's lane, which made the page scrollable sideways by the scrollbar's
+  width for the length of the transition. Clip sideways overflow only then.
+*/
+:root:active-view-transition {
+  overflow-x: clip;
+}
+
 /* Height of the sticky header, for anchors that should land below it. */
 :root {
   --header-h: 73px;
@@ -293,9 +305,11 @@ table {
   arrives slightly blurred and a few pixels low, and clears as the surface
   settles: the refraction of looking through water that is still moving.
 
-  The old page does not drain or vanish. It stays where it is and settles a
-  little under the water, because a rising surface covers things rather than
-  erasing them.
+  The old page does not drain or animate on its own: it fades beneath the
+  rising water (the browser's default cross-fade), so each navigation is one
+  wave. There is deliberately no loading outline between pages: React does not
+  play the enter transition when streamed content replaces a loading boundary,
+  so an outline would silently cost the transition on any slower response.
 
   The waterline's position is animated from script (PageTransition.tsx), which
   can measure where the page sits on screen; CSS here holds the mask layers and
@@ -309,17 +323,6 @@ table {
   --amr-wet: color-mix(in oklab, var(--color-paper) 88%, var(--color-accent));
   --amr-water: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 200' preserveAspectRatio='none'%3E%3Cpath fill='black' fill-opacity='1' d='M0 100 C200 84 400 84 600 100 C800 116 1000 116 1200 100 V200 H0Z'/%3E%3C/svg%3E");
   --amr-wash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 200' preserveAspectRatio='none'%3E%3Cpath fill='black' fill-opacity='0.42' d='M0 90 C200 106 400 106 600 90 C800 74 1000 74 1200 90 V200 H0Z'/%3E%3C/svg%3E");
-}
-
-@keyframes amr-settle {
-  from {
-    transform: none;
-    filter: none;
-  }
-  to {
-    transform: translateY(-4px) scale(0.992);
-    filter: blur(1.5px);
-  }
 }
 
 /*
@@ -342,13 +345,6 @@ table {
     filter: none;
     background-color: var(--color-paper);
   }
-}
-
-::view-transition-old(.amr-forward),
-::view-transition-old(.amr-back),
-::view-transition-old(.amr-cross) {
-  animation: var(--amr-liquid-duration) cubic-bezier(0.77, 0, 0.175, 1) both amr-settle;
-  transform-origin: center top;
 }
 
 ::view-transition-new(.amr-forward),
@@ -385,21 +381,6 @@ table {
     animation-duration: 1ms !important;
     animation-delay: 0s !important;
   }
-}
-
-/*
-  Structure drawings arrive as fixed-size SVG. Unpinned here so a drawing
-  scales with its column instead of clipping on a phone; carbon and bonds are
-  rewritten to `currentColor` at render time, so the skeleton takes the page's
-  ink and the heteroatom colours stay chemical. Clipped to the viewBox: atom
-  labels painted slightly outside it would otherwise widen the page.
-*/
-.amr-structure svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-width: 100%;
-  overflow: hidden;
 }
 
 /* A card that is a link: the edge answers the pointer, nothing moves. */

@@ -239,7 +239,7 @@ export function CandidateList({
                 ) : null}
               </span>
               <span className="grid h-[76px] place-items-center rounded-card bg-paper p-1">
-                <StructureFigure smiles={c.smiles} label={medicineName(c.name)} width={184} height={140} compact />
+                <StructureFigure moleculeId={c.moleculeId} hasStructure={c.hasStructure} label={medicineName(c.name)} compact />
               </span>
             </Link>
           </li>

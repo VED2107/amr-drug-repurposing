@@ -106,10 +106,11 @@ async function createSupabaseDriver(): Promise<Driver> {
       paid the full round trip to the database in turn — which is how a page
       with ten queries took seconds rather than one round trip's worth.
 
-      Five is chosen to match the widest `Promise.all` on any page while staying
-      far below what the transaction pooler allows per client.
+      Ten covers the widest `Promise.all` on any page (the medicine view issues
+      twelve reads at once; with five they ran in three waves) while staying far
+      below what the transaction pooler allows per client.
     */
-    max: 5,
+    max: 10,
     /*
       One statement in flight per connection. By default postgres.js pipelines:
       it writes the next queued statement before the previous reply arrives. If

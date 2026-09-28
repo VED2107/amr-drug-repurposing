@@ -317,8 +317,8 @@ export interface Candidate {
   probability: number;
   /** Laboratory records exist for this medicine against this pathogen. */
   labMeasured: boolean;
-  /** The structure the models were given, for its drawing. */
-  smiles: string | null;
+  /** The database holds a valid structure, so a drawing exists. */
+  hasStructure: boolean;
 }
 
 export interface CandidatePage {
@@ -376,8 +376,8 @@ export async function getCandidates(options: {
   const count = await queryOne<Record<string, unknown>>(`select count(*) as n ${from}`, base);
   const rows = await query<Record<string, unknown>>(
     `select d.molecule_id, d.generic_name, p.probability, coalesce(ba.n, 0) as measured,
-            (select mo.canonical_smiles from molecules mo
-              where mo.molecule_id = d.molecule_id and mo.is_valid) as smiles
+            case when exists (select 1 from molecules mo
+              where mo.molecule_id = d.molecule_id and mo.is_valid) then 1 else 0 end as has_structure
        ${from}
       order by p.probability desc, d.generic_name asc
       limit ? offset ?`,
@@ -394,7 +394,7 @@ export async function getCandidates(options: {
       name: String(r.generic_name),
       probability: toNum(r.probability) as number,
       labMeasured: (toNum(r.measured) ?? 0) > 0,
-      smiles: r.smiles == null ? null : String(r.smiles),
+      hasStructure: Number(r.has_structure) === 1,
     })),
   };
 }
