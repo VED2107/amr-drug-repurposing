@@ -188,137 +188,256 @@ describe("registry invariants", () => {
 /* Database → interface reconciliation                                 */
 /* ------------------------------------------------------------------ */
 
-describe("the dashboard reports live counts", () => {
-  it("shows the library, structure and study counts the database holds", async () => {
-    const [row] = await sql`
-      select
-        (select count(distinct molecule_id) from drugs where molecule_id is not null) as medicines,
-        (select count(*) from molecules where is_valid)                               as structures,
-        (select count(distinct nct_id) from clinical_trials)                          as studies,
-        (select count(*) from docking_results where status = 'ok')                    as poses`;
+/*
+  The website's discovery floor, read from the source that sets it rather than
+  typed again here — so the test checks the page against the constant the page
+  itself uses.
+*/
+function discoveryThreshold() {
+  const source = fs.readFileSync(path.join(here, "..", "src", "lib", "science.ts"), "utf8");
+  const match = source.match(/export const DISCOVERY_THRESHOLD = ([0-9.]+);/);
+  assert.ok(match, "science.ts must declare DISCOVERY_THRESHOLD");
+  return Number(match[1]);
+}
 
-    const page = await html("/dashboard");
-    await assertCurrent("/dashboard", page);
+const ACTIVE = "join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'";
+
+/** A rendered model percentage: the value followed by its label. */
+const PERCENT_WITH_LABEL = /%<\/span>\s*(?:<!-- -->)?\s*<span[^>]*>AI-predicted activity/;
+
+/** A probability as the investigation view prints it (one decimal). */
+function shown(probability) {
+  const p = Number(probability);
+  if (p >= 0.995) return ">99%";
+  if (p <= 0.005 && p > 0) return "<1%";
+  return `${(p * 100).toFixed(1)}%`;
+}
+
+describe("the dashboard counts medicines, not prediction rows", () => {
+  it("shows the live totals, with the activity count as distinct medicines", async () => {
+    const floor = discoveryThreshold();
+    const [row] = await sql.unsafe(
+      `select
+         (select count(distinct molecule_id) from drugs where molecule_id is not null) as medicines,
+         (select count(distinct p.molecule_id) from predictions p ${ACTIVE}
+           where p.probability >= $1
+             and p.molecule_id in (select molecule_id from drugs))                     as with_activity,
+         (select count(distinct nct_id) from clinical_trials)                          as studies`,
+      [floor],
+    );
+
+    const page = await html("/");
+    await assertCurrent("/", page);
     for (const [label, value] of Object.entries(row)) {
-      assert.ok(
-        page.includes(grouped(value)),
-        `dashboard should show the live ${label} count (${grouped(value)})`,
-      );
+      assert.ok(page.includes(grouped(value)), `dashboard should show ${label} = ${grouped(value)}`);
+    }
+    assert.ok(page.includes(`≥${Math.round(floor * 100)}%`), "the floor is stated beside the count");
+  });
+
+  it("counts each pathogen independently, and never sums them into the total", async () => {
+    const floor = discoveryThreshold();
+    const perPathogen = await sql.unsafe(
+      `select p.pathogen_key, count(distinct p.molecule_id) as n
+         from predictions p ${ACTIVE}
+        where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)
+        group by p.pathogen_key order by p.pathogen_key`,
+      [floor],
+    );
+    assert.equal(perPathogen.length, 4, "all four pathogens must have qualifying medicines");
+
+    const [overall] = await sql.unsafe(
+      `select count(*) as n from (
+         select p.molecule_id from predictions p ${ACTIVE}
+          where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)
+          group by p.molecule_id) t`,
+      [floor],
+    );
+    const sum = perPathogen.reduce((a, r) => a + Number(r.n), 0);
+    assert.ok(Number(overall.n) <= sum, "a union can never exceed the sum of its parts");
+    assert.ok(
+      Number(overall.n) >= Math.max(...perPathogen.map((r) => Number(r.n))),
+      "the union is at least the largest single pathogen",
+    );
+
+    // A medicine that qualifies for one pathogen only still counts once.
+    const [single] = await sql.unsafe(
+      `select count(*) as n from (
+         select p.molecule_id from predictions p ${ACTIVE}
+          where p.probability >= $1 group by p.molecule_id having count(*) = 1) t`,
+      [floor],
+    );
+    assert.ok(Number(single.n) > 0, "single-pathogen medicines exist and are part of the union");
+
+    const page = await html("/");
+    for (const r of perPathogen) {
+      assert.ok(page.includes(grouped(r.n)), `dashboard should show ${r.pathogen_key} = ${grouped(r.n)}`);
+    }
+    if (sum !== Number(overall.n)) {
+      assert.ok(!page.includes(`>${grouped(sum)}<`), "the pathogen counts must not be summed on the page");
     }
   });
 });
 
-describe("the case study reads its identifiers from the database", () => {
-  it("shows the stored InChIKey, ChEMBL id, docking score and target", async () => {
-    const [drug] = await sql`
-      select d.molecule_id, d.chembl_id from drugs d
-       where lower(d.generic_name) = 'levoketoconazole' limit 1`;
-    assert.ok(drug, "the case-study subject must exist in the database");
+describe("a medicine opens with its own four predictions", () => {
+  it("shows every ACTIVE prediction for Levoketoconazole, labelled", async () => {
+    const rows = await sql`
+      select p.molecule_id, p.pathogen_key, p.probability from predictions p
+        join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'
+        join drugs d on d.molecule_id = p.molecule_id
+       where lower(d.generic_name) = 'levoketoconazole'
+       group by p.molecule_id, p.pathogen_key, p.probability`;
+    assert.equal(rows.length, 4, "one ACTIVE prediction per pathogen");
 
-    const [pose] = await sql`
-      select min(score_kcal_mol) as best from docking_results
-       where molecule_id = ${drug.molecule_id} and status = 'ok'`;
-    const [target] = await sql`
-      select pdb_id from targets where target_key = 'mtb_inha'`;
-
-    const page = await html("/case-study");
-    assert.ok(page.includes(drug.molecule_id), "shows the stored InChIKey");
-    assert.ok(page.includes(drug.chembl_id), "shows the stored ChEMBL id");
-    assert.ok(page.includes(Number(pose.best).toFixed(3)), "shows the stored docking score");
-    assert.ok(page.includes(target.pdb_id), "shows the PDB the pose was computed against");
+    const route = `/investigate/${rows[0].molecule_id}`;
+    const page = await html(route);
+    await assertCurrent(route, page);
+    for (const r of rows) {
+      assert.ok(page.includes(shown(r.probability)), `${r.pathogen_key} should read ${shown(r.probability)}`);
+    }
+    assert.ok(page.includes("AI-predicted activity"), "every percentage carries its label");
   });
 
-  it("does not carry the identifiers the design project got wrong", async () => {
-    const page = await html("/case-study");
-    // CHEMBL4297516 is Lurbinectedin, an unrelated medicine; the design file
-    // carries it for this subject. The database is authoritative.
-    assert.ok(!page.includes("CHEMBL4297516"), "must not use the design project's ChEMBL id");
-    assert.ok(
-      !page.includes("DCUFMVPCXCSVNP-XKDAHURESA-N"),
-      "must not use the design project's InChIKey",
+  it("lists other medicines above the floor, excluding itself, and each one opens", async () => {
+    const floor = discoveryThreshold();
+    const [self] = await sql`
+      select molecule_id from drugs where lower(generic_name) = 'levoketoconazole' limit 1`;
+    const [expected] = await sql.unsafe(
+      `select count(*) as n from predictions p ${ACTIVE}
+        where p.pathogen_key = 'mtb' and p.probability >= $1 and p.molecule_id <> $2
+          and p.molecule_id in (select molecule_id from drugs)`,
+      [floor, self.molecule_id],
     );
+
+    const route = `/investigate/${self.molecule_id}?p=mtb`;
+    const page = await html(route);
+    // React separates adjacent text with `<!-- -->`; read the text as shown.
+    const text = page.replace(/<!-- -->/g, "");
+    assert.ok(text.includes(`of ${grouped(expected.n)} medicines`), "candidate total matches the database");
+
+    const links = [...page.matchAll(/href="\/investigate\/([A-Z0-9-]+)"/g)]
+      .map((m) => m[1])
+      .filter((id) => id !== self.molecule_id);
+    assert.ok(links.length > 0, "other medicines are listed as links");
+    assert.ok(!links.includes(self.molecule_id), "the searched medicine is not its own candidate");
+
+    const other = await html(`/investigate/${links[0]}`);
+    const [count] = await sql.unsafe(
+      `select count(*) as n from predictions p ${ACTIVE} where p.molecule_id = $1`,
+      [links[0]],
+    );
+    assert.equal(Number(count.n), 4, "the opened medicine has all four predictions");
+    assert.equal((other.match(/AI-predicted activity<\/span>/g) ?? []).length >= 4, true);
   });
 
-  it("states that it is retrospective rather than a discovery", async () => {
-    const page = await html("/case-study");
-    assert.ok(
-      /retrospective computational case study/i.test(page),
-      "the caveat must be on the page",
-    );
-    assert.ok(/not a held-out discovery/i.test(page));
+  it("says a medicine with no structure has no prediction and was not checked", async () => {
+    const [row] = await sql`
+      select min(generic_name) as name from drugs where molecule_id is null`;
+    const page = await html(`/investigate?medicine=${encodeURIComponent(row.name)}`);
+    assert.ok(/No AI prediction for this medicine/.test(page));
+    assert.ok(/not yet checked/i.test(page), "must not read as a negative result");
+    assert.ok(!PERCENT_WITH_LABEL.test(page), "no AI percentage at all");
   });
 });
 
-describe("the percentage gate holds in the rendered pages", () => {
+describe("the percentage gate holds for conditions", () => {
   it("shows no probability for a condition with no model", async () => {
-    const page = await html("/explorer?medicine=levoketoconazole&condition=Cushing%27s%20Syndrome");
+    const page = await html("/investigate?condition=Migraine");
     assert.ok(
-      /No model exists for this condition/i.test(page),
+      /No AI activity model is currently available for this condition/.test(page),
       "an unmodelled condition must say so explicitly",
     );
-    // The activity figure for this medicine's mtb model must not leak into a
-    // page about an endocrine condition.
-    assert.ok(!/AI-predicted activity<\/span>\s*<\/div>\s*<span[^>]*>8[0-9]%/.test(page));
+    assert.ok(!/Other medicines to investigate/.test(page), "no computational candidates without a model");
+    assert.ok(!PERCENT_WITH_LABEL.test(page), "no AI percentage at all");
   });
 
-  it("shows the stored probability for a condition that has a model", async () => {
-    const [row] = await sql`
-      select p.probability from predictions p
-       join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'
-       join drugs d on d.molecule_id = p.molecule_id
-      where lower(d.generic_name) = 'levoketoconazole' and p.pathogen_key = 'mtb' limit 1`;
+  it("maps a supported condition and keeps documented medicines out of the candidates", async () => {
+    const floor = discoveryThreshold();
+    const page = await html("/investigate?condition=Tuberculosis");
+    assert.ok(/Supported pathogen/.test(page) && page.includes("M. tuberculosis"));
+    assert.ok(/not presented as established treatments/.test(page));
 
-    const expected =
-      Number(row.probability) >= 0.995
-        ? ">99%"
-        : `${Math.round(Number(row.probability) * 100)}%`;
-
-    const page = await html("/explorer?medicine=levoketoconazole&condition=Tuberculosis");
-    assert.ok(page.includes(expected), `explorer should show ${expected}`);
-  });
-
-  it("renders a saturated probability as >99% rather than 100%", async () => {
-    const [row] = await sql`
-      select count(*) as n from predictions p
-       join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'
-      where p.probability >= 0.995`;
-    if (Number(row.n) === 0) return; // nothing saturated in this snapshot
-
-    const page = await html("/screening?pathogen=kpneumoniae&sort=probability&dir=desc");
-    assert.ok(page.includes("&gt;99%") || page.includes(">99%"), "saturation must read >99%");
-    assert.ok(!/>100%</.test(page), "no probability may be rendered as 100%");
+    // The first candidate the database would list, after removing every
+    // medicine with a TB study or a lab record against M. tuberculosis.
+    const [first] = await sql.unsafe(
+      `select p.molecule_id from predictions p ${ACTIVE}
+        where p.pathogen_key = 'mtb' and p.probability >= $1
+          and p.molecule_id in (select molecule_id from drugs)
+          and p.molecule_id not in (
+            select ct.molecule_id from clinical_trials ct
+             where ct.molecule_id is not null
+               and ((' ' || replace(lower(ct.conditions), ';', ' ') || ' ') like '%tuberculosis%'
+                 or (' ' || replace(lower(ct.conditions), ';', ' ') || ' ') like '% tb %'
+                 or (' ' || replace(lower(ct.conditions), ';', ' ') || ' ') like '%latent tb%')
+            union select b.molecule_id from bioactivity b
+             where b.pathogen_key = 'mtb' and b.label is not null)
+        order by p.probability desc limit 1`,
+      [floor],
+    );
+    assert.ok(first, "tuberculosis has computational candidates");
+    const candidates = page.slice(page.indexOf("Other medicines to investigate"));
+    assert.ok(candidates.includes(first.molecule_id), "the first candidate matches the database");
   });
 });
 
-describe("coverage is reported as coverage, not as evidence", () => {
-  it("clinical page matches the query counts in the database", async () => {
+describe("registered studies filter by condition", () => {
+  it("dashboard filter matches the registry rows", async () => {
     const [row] = await sql`
-      select
-        (select count(*) from clinical_queries)                     as queried,
-        (select count(*) from clinical_queries where n_results = 0) as none_found,
-        (select count(distinct nct_id) from clinical_trials)        as studies`;
-
-    const page = await html("/clinical");
-    await assertCurrent("/clinical", page);
-    assert.ok(page.includes(grouped(row.queried)), "shows how many medicines were queried");
-    assert.ok(page.includes(grouped(row.none_found)), "shows how many returned nothing");
-    assert.ok(page.includes(grouped(row.studies)), "shows the distinct study count");
-    assert.ok(/not yet checked/i.test(page) && /no evidence found/i.test(page));
+      select count(distinct nct_id) as n from clinical_trials
+       where (' ' || replace(lower(conditions), ';', ' ') || ' ') like '%tuberculosis%'`;
+    const page = await html("/?sc=tuberculosis");
+    assert.ok(page.includes(grouped(row.n)), `shows ${grouped(row.n)} studies`);
+    assert.ok(/does not establish a positive result/.test(page));
   });
 
-  it("docking page matches the pose counts in the database", async () => {
-    const [row] = await sql`
-      select
-        (select count(*) from docking_results where status = 'ok')          as poses,
-        (select count(distinct molecule_id) from docking_results
-          where status = 'ok')                                              as molecules`;
-
-    const page = await html("/docking");
-    await assertCurrent("/docking", page);
-    assert.ok(page.includes(grouped(row.poses)), "shows the stored pose count");
-    assert.ok(page.includes(grouped(row.molecules)), "shows how many medicines are docked");
-    assert.ok(/not yet docked/i.test(page), "must name the uncomputed remainder");
+  it("a condition with no studies says no evidence found, not no effect", async () => {
+    const page = await html("/investigate?condition=Zzqx%20fever");
+    assert.ok(/no evidence found, not evidence of no effect/i.test(page));
   });
+});
+
+describe("retired sections stay retired", () => {
+  for (const route of ["/dashboard", "/screening", "/candidates", "/explorer", "/models", "/runs", "/retraining"]) {
+    it(`${route} redirects to the dashboard`, async () => {
+      const res = await fetch(`${BASE_URL}${route}`, { redirect: "manual" });
+      assert.ok([307, 308].includes(res.status), `${route} should redirect`);
+      assert.equal(new URL(res.headers.get("location"), BASE_URL).pathname, "/");
+    });
+  }
+});
+
+const PUBLIC_ROUTES = [
+  "/",
+  "/?sc=tuberculosis",
+  "/investigate/XMAYWYJOQHXEEK-ZEQKJWHPSA-N",
+  "/investigate?condition=Tuberculosis",
+  "/investigate?condition=Migraine",
+  "/investigate?medicine=cipro",
+];
+
+describe("no page exposes the machinery", () => {
+  const TECHNICAL = [
+    /RF-(mrsa|ecoli|kpneumoniae|mtb)-v\d/,
+    /DS-20\d{6}/,
+    /RDKit/,
+    /Morgan/,
+    /Random Forest/i,
+    /scaffold/i,
+    /PR-AUC/,
+    /Supabase/i,
+    /model_versions|clinical_trials|dataset_members/,
+    /Docker/,
+  ];
+  for (const route of PUBLIC_ROUTES) {
+    it(`${route} shows no internal identifiers`, async () => {
+      const res = await fetch(`${BASE_URL}${route}`, { signal: AbortSignal.timeout(PAGE_DEADLINE_MS) });
+      const visible = (await res.text())
+        .replace(/<script[\s\S]*?<\/script>/g, " ")
+        .replace(/<[^>]+>/g, " ");
+      for (const pattern of TECHNICAL) {
+        assert.ok(!pattern.test(visible), `${route} must not show ${pattern}`);
+      }
+    });
+  }
 });
 
 describe("no page claims clinical benefit", () => {
@@ -327,24 +446,11 @@ describe("no page claims clinical benefit", () => {
     /proven to treat/i,
     /clinically effective/i,
     /recommended for treatment/i,
+    /best (alternative|candidate|drug|medicine)s?/i,
+    /top (\d+ )?candidates/i,
   ];
 
-  for (const route of [
-    "/",
-    "/dashboard",
-    "/screening",
-    "/candidates",
-    "/medicines",
-    "/case-study",
-    "/explorer?medicine=levoketoconazole&condition=Tuberculosis",
-    "/molecular",
-    "/docking",
-    "/clinical",
-    "/models",
-    "/pipeline",
-    "/retraining",
-    "/roadmap",
-  ]) {
+  for (const route of PUBLIC_ROUTES) {
     it(`${route} carries no efficacy language`, async () => {
       const page = await html(route);
       for (const pattern of FORBIDDEN) {

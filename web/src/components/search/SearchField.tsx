@@ -42,6 +42,7 @@ export function SearchField({
   navigate = false,
   submitOnSelect = false,
   className = "",
+  inputClassName = "",
 }: {
   name: string;
   source: Source;
@@ -54,6 +55,8 @@ export function SearchField({
   /** Submit the surrounding form once a suggestion is taken. */
   submitOnSelect?: boolean;
   className?: string;
+  /** Extra classes for the input itself, e.g. a taller hero field. */
+  inputClassName?: string;
 }) {
   const router = useRouter();
   const listId = useId();
@@ -90,7 +93,7 @@ export function SearchField({
                 value: String(r.name ?? ""),
                 label: String(r.name ?? ""),
                 note: r.note == null ? undefined : String(r.note),
-                href: r.moleculeId ? `/medicines/${encodeURIComponent(String(r.moleculeId))}` : undefined,
+                href: r.href == null ? undefined : String(r.href),
               };
             }
             return {
@@ -190,7 +193,7 @@ export function SearchField({
               take(list[active]);
             }
           }}
-          className="min-h-11 w-full rounded-card border border-rule-strong bg-pure py-2.5 pl-3 pr-9 font-mono text-[12px] text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(180,83,9,0.14)]"
+          className={`min-h-11 w-full rounded-card border border-rule-strong bg-pure py-2.5 pl-3 pr-9 font-mono text-[12px] text-ink outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(180,83,9,0.14)] ${inputClassName}`}
         />
 
         {term ? (
@@ -224,8 +227,8 @@ export function SearchField({
             </li>
           ) : list.length === 0 ? (
             <li className="list-none px-3 py-2.5 text-[12px] leading-snug text-muted">
-              Nothing in this database matches. That is a statement about what has been
-              loaded here, not about the medicine or condition.
+              Nothing in this dataset matches. That says what has been loaded here,
+              not anything about the medicine or condition.
             </li>
           ) : (
             list.map((hit, index) => (

@@ -9,7 +9,7 @@
  * Everything here is pure and runs on the server as happily as the client.
  */
 
-import type { EvidenceRung, PathogenKey } from "./types";
+import type { PathogenKey } from "./types";
 import { isPathogenKey } from "./types";
 
 /**
@@ -65,22 +65,6 @@ export function formatProbability(value: number | null, decimals = 0): string {
 }
 
 /**
- * Plain wording for a predicted-activity probability.
- *
- * Describes the prediction, never an outcome: "higher predicted activity",
- * not "more effective".
- */
-export function activityBand(value: number | null): {
-  wording: string;
-  kind: "prediction" | "neutral";
-} {
-  if (value === null) return { wording: "No prediction available", kind: "neutral" };
-  if (value >= 0.75) return { wording: "Higher predicted activity", kind: "prediction" };
-  if (value >= 0.5) return { wording: "Moderate predicted activity", kind: "prediction" };
-  return { wording: "Lower predicted activity", kind: "neutral" };
-}
-
-/**
  * Condition text → the pathogen this system models, or `null`.
  *
  * This is the gate on percentages. Mirrors `AMR_DISEASE_PATTERNS` and
@@ -96,9 +80,18 @@ const AMR_DISEASE_PATTERNS: Record<PathogenKey, readonly string[]> = {
     "staph aureus",
   ],
   ecoli: ["escherichia coli", "e. coli", "e coli"],
-  kpneumoniae: ["klebsiella"],
+  kpneumoniae: ["klebsiella", "k. pneumoniae", "k pneumoniae"],
   mtb: ["tuberculosis", "mycobacterium tuberculosis", " tb ", "latent tb"],
 };
+
+/**
+ * The words a registered study's conditions must contain to count as being
+ * about a modelled pathogen. The same patterns as the gate, so "documented for
+ * this condition" and "a model exists for this condition" can never disagree.
+ */
+export function pathogenConditionTerms(key: PathogenKey): readonly string[] {
+  return AMR_DISEASE_PATTERNS[key];
+}
 
 export function matchModelledPathogen(disease: string | null | undefined): PathogenKey | null {
   if (!disease) return null;
@@ -125,112 +118,25 @@ export function mayShowProbability(
 /** The one permitted label for a model probability. */
 export const ACTIVITY_LABEL = "AI-predicted activity";
 
+/**
+ * The website's discovery floor: a medicine counts as having AI-predicted
+ * activity against a pathogen, and can be listed among the other medicines to
+ * investigate, when the ACTIVE model's probability is at or above this.
+ *
+ * This belongs to the website only. It is not the models' decision boundary
+ * and not the pipeline's candidate threshold (`configs/config.yaml`), and
+ * neither is changed by it. Every medicine has a prediction for every
+ * pathogen, so without a floor every medicine would count.
+ */
+export const DISCOVERY_THRESHOLD = 0.4;
+
+/** The floor as the reader sees it: "≥40%". */
+export const DISCOVERY_THRESHOLD_TEXT = `≥${Math.round(DISCOVERY_THRESHOLD * 100)}%`;
+
 /** This project's docking screening target. Not a universal binding cutoff. */
 export const DOCKING_SCREENING_TARGET_KCAL_MOL = -7.0;
-export const DOCKING_TARGET_LABEL = "Project screening target";
-
-/**
- * The five evidence rungs, with what each one does and does not establish.
- * Copy is carried here so that a rung can never be rendered without it.
- */
-export interface RungDefinition {
-  key: EvidenceRung;
-  label: string;
-  /** Colour token name; colour is never the only carrier of meaning. */
-  colorVar: string;
-  /** A shape, so the rung survives greyscale and colour-blindness. */
-  glyph: string;
-  means: string;
-  not: string;
-}
-
-export const RUNGS: readonly RungDefinition[] = [
-  {
-    key: "clinical",
-    label: "Clinical evidence",
-    colorVar: "var(--color-clinical)",
-    glyph: "◆",
-    means: "Registered human studies exist for this medicine and condition.",
-    not: "Does not mean the treatment works, was successful, or is approved for this use.",
-  },
-  {
-    key: "experimental",
-    label: "Experimental measurement",
-    colorVar: "var(--color-experimental)",
-    glyph: "■",
-    means: "Laboratory activity was measured against this organism and recorded in ChEMBL.",
-    not: "Measured in vitro activity does not establish an effect in patients.",
-  },
-  {
-    key: "computational",
-    label: "Computational result",
-    colorVar: "var(--color-computational)",
-    glyph: "▲",
-    means: "A model prediction and/or a docking pose exists. Nothing was measured.",
-    not: "Does not establish binding, activity, or clinical effectiveness.",
-  },
-  {
-    key: "none",
-    label: "No evidence found",
-    colorVar: "var(--color-none)",
-    glyph: "○",
-    means: "The sources were queried and nothing matched this pairing.",
-    not: "Absence of a record is not evidence of no effect.",
-  },
-  {
-    key: "unchecked",
-    label: "Not yet checked",
-    colorVar: "var(--color-unchecked)",
-    glyph: "—",
-    means: "This pairing has never been queried in this system.",
-    not: "Not the same as no evidence found. Nothing has been looked for yet.",
-  },
-] as const;
-
-export function rung(key: EvidenceRung): RungDefinition {
-  const found = RUNGS.find((r) => r.key === key);
-  if (!found) throw new Error(`unknown evidence rung: ${key}`);
-  return found;
-}
-
-/**
- * Classify an evidence record onto a rung.
- *
- * Order matters and the `unchecked` branch comes first: if the pairing was
- * never queried we say so, rather than reporting the absence of records as
- * "no evidence found".
- */
-export function classifyRung(input: {
-  wasChecked: boolean;
-  trialCount: number;
-  measuredRecords: number | null;
-  hasPrediction: boolean;
-  hasDocking: boolean;
-}): EvidenceRung {
-  if (!input.wasChecked) return "unchecked";
-  if (input.trialCount > 0) return "clinical";
-  if ((input.measuredRecords ?? 0) > 0) return "experimental";
-  if (input.hasPrediction || input.hasDocking) return "computational";
-  return "none";
-}
-
-/**
- * The resistance-phenotype limitation, in the wording the system is allowed to
- * use. The models are species-level activity models; they do not predict
- * resistance.
- */
-export const RESISTANCE_LIMITATION =
-  "Resistance phenotype coverage is limited in the underlying data, so the current " +
-  "models primarily represent pathogen/species-level activity rather than activity " +
-  "against the resistant phenotype.";
-
-/** Shown next to a prediction whose molecule was in the model's training data. */
-export const TRAINING_DATA_DISCLOSURE =
-  "This molecule was represented in the model's training data, so this score is " +
-  "recall rather than an unseen prediction.";
 
 /** Shown for any condition outside the four modelled bacteria. */
 export const NO_MODEL_NOTICE =
-  "No model exists for this condition. This system only predicts activity against " +
-  "MRSA, E. coli, K. pneumoniae and M. tuberculosis. What follows is documented " +
-  "evidence, not a prediction.";
+  "No AI activity model is currently available for this condition. Predictions exist " +
+  "only for MRSA, E. coli, K. pneumoniae and M. tuberculosis, so no percentage is shown.";

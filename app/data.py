@@ -315,7 +315,7 @@ AMR_DISEASE_PATTERNS: dict[str, tuple[str, ...]] = {
     "mrsa": ("mrsa", "methicillin-resistant", "methicillin resistant",
              "staphylococcus aureus", "staph aureus"),
     "ecoli": ("escherichia coli", "e. coli", "e coli"),
-    "kpneumoniae": ("klebsiella",),
+    "kpneumoniae": ("klebsiella", "k. pneumoniae", "k pneumoniae"),
     "mtb": ("tuberculosis", "mycobacterium tuberculosis", " tb ", "latent tb"),
 }
 

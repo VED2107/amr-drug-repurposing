@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { AppShell } from "@/components/shell/AppShell";
 import { getBuildInfo } from "@/lib/queries/build";
-import { getNavReadouts } from "@/lib/queries/nav";
 import "./globals.css";
 
 /**
@@ -43,19 +42,17 @@ const mono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "AMR Research — Smart Screening",
+  title: "AMR Drug Repurposing",
   description:
-    "A screening framework that scores already-approved medicines for predicted " +
-    "antibacterial activity against four drug-resistant bacteria, and shows the " +
-    "evidence behind each result. No medicine is ranked and nothing here " +
-    "establishes clinical benefit.",
+    "Search approved medicines for AI-predicted antibacterial activity against MRSA, " +
+    "E. coli, K. pneumoniae and M. tuberculosis, and see the documented evidence " +
+    "behind each one. Nothing here establishes clinical benefit.",
 };
 
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const build = await getBuildInfo();
-  const readouts = await getNavReadouts();
 
   return (
     <html
@@ -75,7 +72,7 @@ export default async function RootLayout({
           // the database to prove the page was not served from a stale cache.
           <meta name="amr-data-version" content={build.dataVersion} />
         ) : null}
-        <AppShell build={build} readouts={readouts}>{children}</AppShell>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

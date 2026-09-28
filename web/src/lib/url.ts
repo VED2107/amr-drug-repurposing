@@ -25,10 +25,6 @@ export function numberParam(params: RawSearchParams, key: string): number | unde
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-/** A search parameter read as a flag. Only the literal "1" is true. */
-export function flagParam(params: RawSearchParams, key: string): boolean {
-  return firstValue(params, key) === "1";
-}
 
 /**
  * Build `path?query` from the current parameters plus an override.

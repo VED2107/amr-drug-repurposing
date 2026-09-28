@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { searchMedicines } from "@/lib/queries/screening";
+import { searchMedicines } from "@/lib/queries/investigate";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Global medicine lookup for the header search.
+ * Medicine lookup for the search.
  *
  * Returns an empty list for a short or absent term. An empty list here means
  * "nothing matched", which the client renders as "no match in the documented

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { getConditionSuggestions } from "@/lib/queries/analysis";
+import { getConditionSuggestions } from "@/lib/queries/investigate";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Condition lookup for the Medicine × Condition search.
+ * Condition lookup for the search and the studies filter.
  *
  * Suggestions come from conditions that registered studies in this database
  * actually name, plus the four modelled bacteria. A condition absent from the
- * list can still be typed: the explorer answers for any condition, and says
- * explicitly when no model covers it.
+ * list can still be typed: the investigation answers for any condition, and
+ * says explicitly when no model covers it.
  */
 export async function GET(request: Request) {
   const term = new URL(request.url).searchParams.get("q") ?? "";

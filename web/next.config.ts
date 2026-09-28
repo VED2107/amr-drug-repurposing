@@ -1,14 +1,30 @@
 import type { NextConfig } from "next";
 
+/*
+  The site used to have fifteen sections. It is now the dashboard and the
+  investigation view. Old links still land somewhere sensible: a medicine's old
+  page opens its investigation, and every other retired section opens the
+  dashboard, which now holds what was worth keeping from it.
+*/
+const RETIRED = [
+  "/dashboard",
+  "/screening",
+  "/candidates",
+  "/medicines",
+  "/case-study",
+  "/explorer",
+  "/molecular",
+  "/docking",
+  "/clinical",
+  "/models",
+  "/pipeline",
+  "/retraining",
+  "/roadmap",
+  "/runs",
+];
+
 const nextConfig: NextConfig = {
   serverExternalPackages: [
-    /*
-      RDKit ships an Emscripten bundle that loads its own .wasm from disk at
-      runtime. Bundling it breaks that lookup, so it stays an external server
-      package — it runs in Node, draws the SVG, and never reaches the browser.
-    */
-    "@rdkit/rdkit",
-
     /*
       better-sqlite3 is a native module, and only the local development driver
       ever loads it: production reads Supabase. It is listed here so the bundler
@@ -21,6 +37,13 @@ const nextConfig: NextConfig = {
     */
     "better-sqlite3",
   ],
+
+  async redirects() {
+    return [
+      { source: "/medicines/:moleculeId", destination: "/investigate/:moleculeId", permanent: false },
+      ...RETIRED.map((source) => ({ source, destination: "/", permanent: false })),
+    ];
+  },
 };
 
 export default nextConfig;

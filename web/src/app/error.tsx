@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect } from "react";
 
 /**
@@ -37,7 +39,7 @@ export default function Error({
         </h1>
 
         <p className="m-0 mt-5 text-[15px] leading-relaxed text-ink-2">
-          Every figure on this site is read from the research database when the page is
+          Every figure on this site is read from the dataset when the page is
           requested. That read did not succeed, so nothing is shown — rather than showing
           a stale or substituted number.
         </p>
@@ -58,19 +60,11 @@ export default function Error({
           >
             Try again
           </button>
-          <a
-            href="/api/health"
-            className="inline-flex min-h-11 items-center text-[13px] text-link"
-          >
-            Check the database connection →
-          </a>
+          <Link href="/" className="amr-btn-quiet">
+            Back to the dashboard
+          </Link>
         </div>
 
-        {error.digest ? (
-          <p className="m-0 mt-8 font-mono text-[11px] text-fainter">
-            Reference {error.digest}
-          </p>
-        ) : null}
       </div>
     </main>
   );
