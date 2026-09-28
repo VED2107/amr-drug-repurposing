@@ -7,12 +7,15 @@ import {
   ComputationalBlock,
   DocumentedBlock,
   DoesNotEstablish,
+  EvidenceIcon,
   SectionHead,
+  StateNote,
   StudyList,
   STUDY_NOTE,
 } from "@/components/investigate";
+import { StructureFigure } from "@/components/molecular/StructureFigure";
 import { Page } from "@/components/primitives";
-import { medicineName } from "@/lib/format";
+import { formatUnits, medicineName } from "@/lib/format";
 import {
   getBrandsForMolecule,
   getMeasuredCountsByPathogen,
@@ -25,12 +28,19 @@ import {
   countStudiesForMedicine,
   getBestDocking,
   getCandidates,
+  getLabRecords,
   getStereoisomerInTraining,
+  getStructureSmiles,
   getStudies,
   getStudyConditionsForMedicine,
 } from "@/lib/queries/investigate";
-import { DISCOVERY_THRESHOLD_TEXT, DOCKING_SCREENING_TARGET_KCAL_MOL } from "@/lib/science";
+import {
+  DISCOVERY_THRESHOLD,
+  DISCOVERY_THRESHOLD_TEXT,
+  DOCKING_SCREENING_TARGET_KCAL_MOL,
+} from "@/lib/science";
 import { isPathogenKey, PATHOGEN_KEYS, type PathogenKey } from "@/lib/types";
+import { chemblAssay, chemblCompound, chemblDocument, pdbStructure } from "@/lib/links";
 import { firstValue, numberParam, withParams, type RawSearchParams } from "@/lib/url";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +65,7 @@ export default async function MedicinePage(props: {
 
   const studyCondition = (firstValue(params, "sc") ?? "").trim();
 
-  const [brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal] =
+  const [brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal, smiles, labRecords] =
     await Promise.all([
       getBrandsForMolecule(moleculeId),
       getPathogens(),
@@ -71,6 +81,8 @@ export default async function MedicinePage(props: {
         page: numberParam(params, "sp") ?? 1,
       }),
       countStudiesForMedicine(moleculeId),
+      getStructureSmiles(moleculeId),
+      getLabRecords(moleculeId),
     ]);
 
   const label = (key: PathogenKey) => pathogens.find((p) => p.key === key)?.label ?? key;
@@ -94,8 +106,11 @@ export default async function MedicinePage(props: {
   const path = `/investigate/${encodeURIComponent(moleculeId)}`;
   const n = (v: number) => v.toLocaleString("en-GB");
   const name = medicineName(medicine.genericName);
-  const brandNames = [...new Set(brands.map((b) => b.brandName).filter((b): b is string => !!b))];
+  const brandNames = [
+    ...new Set(brands.map((b) => b.brandName).filter((b): b is string => !!b).map(medicineName)),
+  ];
   const labPathogens = PATHOGEN_KEYS.filter((k) => measured[k]?.records);
+  const labTotal = labPathogens.reduce((a, k) => a + measured[k].records, 0);
   // The Orange Book writes form and route together ("TABLET;ORAL").
   const product = (medicine.dosageForm ?? medicine.route ?? "")
     .split(";")
@@ -105,18 +120,32 @@ export default async function MedicinePage(props: {
 
   return (
     <Page>
-      <p className="m-0 mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Medicine</p>
-      <h1 className="m-0 break-words font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
-        {name}
-      </h1>
-      <p className="m-0 mt-3 max-w-[72ch] text-[14px] leading-relaxed text-ink-2">
-        FDA-approved product{product ? ` (${product})` : ""}
-        {brandNames.length ? `, marketed as ${brandNames.slice(0, 4).join(", ")}${brandNames.length > 4 ? ` and ${brandNames.length - 4} more` : ""}` : ""}
-        . The indication it is approved for is not recorded in this dataset.
-      </p>
+      <header className="grid items-center gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,340px)] md:gap-10">
+        <div className="min-w-0">
+          <h1 className="m-0 break-words font-display text-[clamp(32px,4.6vw,56px)] font-semibold leading-[1.03] tracking-[-0.03em] text-ink">
+            {name}
+          </h1>
+          <p className="m-0 mt-4 max-w-[62ch] text-[15px] leading-relaxed text-ink-2">
+            FDA-approved product{product ? ` (${product})` : ""}
+            {brandNames.length
+              ? `, marketed as ${brandNames.slice(0, 3).join(", ")}${brandNames.length > 3 ? ` and ${brandNames.length - 3} more` : ""}`
+              : ""}
+            . The indication it is approved for is not recorded in this dataset.
+          </p>
+          <dl className="m-0 mt-6 flex flex-wrap gap-x-8 gap-y-3">
+            <Fact label="Registered studies" value={clinical.checked ? n(studyTotal) : "Not yet checked"} />
+            <Fact label="Lab records" value={n(labTotal)} />
+            <Fact
+              label={`Pathogens at ${DISCOVERY_THRESHOLD_TEXT}`}
+              value={`${predicted.filter((k) => (predictionFor(k)?.probability ?? 0) >= DISCOVERY_THRESHOLD).length} of 4`}
+            />
+          </dl>
+        </div>
+        <StructureFigure smiles={smiles} label={name} width={420} height={300} />
+      </header>
 
       {/* --- AI-predicted activity ---------------------------------- */}
-      <div className="mt-10">
+      <div className="mt-12">
         <ComputationalBlock id="activity" title="AI-predicted activity">
           <ul className="m-0 list-none p-0">
             {PATHOGEN_KEYS.map((key) => {
@@ -155,15 +184,15 @@ export default async function MedicinePage(props: {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <DocumentedBlock id="evidence" title="Clinical and experimental">
             <div className="grid gap-6 sm:grid-cols-2">
-              <EvidencePart glyph="◆" color="var(--color-clinical)" title="Clinical">
+              <EvidencePart kind="clinical" title="Clinical">
                 {!clinical.checked ? (
-                  <State tone="unchecked" head="Not yet checked">
+                  <StateNote kind="unchecked" head="Not yet checked">
                     The trial registry has not been searched for this medicine.
-                  </State>
+                  </StateNote>
                 ) : studyTotal === 0 ? (
-                  <State tone="none" head="No evidence found">
+                  <StateNote kind="none" head="No evidence found">
                     The registry was searched and no registered study names this medicine.
-                  </State>
+                  </StateNote>
                 ) : (
                   <p className="m-0 text-[13px] leading-snug text-ink-2">
                     <span className="block font-mono text-[24px] font-medium tabular-nums text-ink">
@@ -175,12 +204,12 @@ export default async function MedicinePage(props: {
                 )}
               </EvidencePart>
 
-              <EvidencePart glyph="■" color="var(--color-experimental)" title="Experimental">
+              <EvidencePart kind="experimental" title="Experimental">
                 {labPathogens.length === 0 ? (
-                  <State tone="none" head="No evidence found">
+                  <StateNote kind="none" head="No evidence found">
                     No laboratory measurement against the four bacteria in the ChEMBL records
                     loaded here.
-                  </State>
+                  </StateNote>
                 ) : (
                   <ul className="m-0 list-none space-y-1.5 p-0">
                     {labPathogens.map((k) => (
@@ -194,18 +223,76 @@ export default async function MedicinePage(props: {
                 )}
               </EvidencePart>
             </div>
+
+            <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-rule-soft pt-4 text-[13px]">
+              {medicine.chemblId ? (
+                <a href={chemblCompound(medicine.chemblId)} target="_blank" rel="noreferrer">
+                  Open {name} in ChEMBL ↗
+                </a>
+              ) : null}
+              {clinical.checked && studyTotal > 0 ? <Link href="#studies">Registered studies below</Link> : null}
+            </div>
+
+            {labRecords.length > 0 ? (
+              <details className="group mt-4">
+                <summary className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-[13px] font-medium text-ink">
+                  {labTotal > labRecords.length
+                    ? `Show the latest ${n(labRecords.length)} of ${n(labTotal)} laboratory records, with sources`
+                    : `Show the ${n(labRecords.length)} laboratory ${labRecords.length === 1 ? "record" : "records"}, with sources`}
+                </summary>
+                <ul className="m-0 mt-2 max-h-[420px] list-none overflow-y-auto rounded-card border border-rule p-0">
+                  {labRecords.map((r, i) => (
+                    <li key={`${r.assayId}-${i}`} className="grid gap-x-4 gap-y-1 border-b border-rule-soft px-3 py-2.5 text-[12px] leading-snug last:border-b-0 md:grid-cols-[8rem_minmax(0,1fr)_11rem_auto]">
+                      <span className="font-medium text-ink">{label(r.pathogenKey)}</span>
+                      <span className="text-ink-2">{r.assayDescription ?? "Assay description not recorded"}</span>
+                      <span className="font-mono tabular-nums text-ink">
+                        {r.activityType ?? "Value"} {r.relation && r.relation !== "=" ? r.relation : ""}
+                        {r.value ?? "—"} {formatUnits(r.units)}
+                        <span className={`ml-1.5 font-sans ${r.label === 1 ? "text-experimental" : "text-muted"}`}>
+                          {r.label === 1 ? "active" : "inactive"}
+                        </span>
+                      </span>
+                      <span className="flex flex-wrap gap-x-3">
+                        {r.assayId ? (
+                          <a href={chemblAssay(r.assayId)} target="_blank" rel="noreferrer">
+                            Assay ↗
+                          </a>
+                        ) : null}
+                        {r.documentId ? (
+                          <a href={chemblDocument(r.documentId)} target="_blank" rel="noreferrer">
+                            Source{r.year ? ` ${r.year}` : ""} ↗
+                          </a>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="m-0 mt-2 text-[12px] text-muted">
+                  {labTotal > labRecords.length ? "Every record is in ChEMBL, linked above. " : ""}
+                  &ldquo;Active&rdquo; means the measured value reached this project&rsquo;s laboratory
+                  cutoff (10&nbsp;µM or stronger). A laboratory result does not show an effect in patients.
+                </p>
+              </details>
+            ) : null}
           </DocumentedBlock>
 
-          <ComputationalBlock title="Docking" kicker="Computational evidence">
+          <ComputationalBlock title="Docking" tag="Computational · nothing measured">
             {docking.length === 0 ? (
-              <State tone="unchecked" head="Not yet docked">
+              <StateNote kind="unchecked" head="Not yet docked">
                 Docking has been run for a subset of medicines only.
-              </State>
+              </StateNote>
             ) : (
               <ul className="m-0 list-none space-y-2 p-0">
                 {docking.map((d) => (
                   <li key={d.pathogenKey} className="text-[13px] leading-snug text-ink-2">
-                    {d.targetName} ({label(d.pathogenKey)}):{" "}
+                    {d.pdbId ? (
+                      <a href={pdbStructure(d.pdbId)} target="_blank" rel="noreferrer">
+                        {d.targetName} ↗
+                      </a>
+                    ) : (
+                      d.targetName
+                    )}{" "}
+                    ({label(d.pathogenKey)}):{" "}
                     <span className="font-mono tabular-nums text-ink">
                       {d.scoreKcalMol.toFixed(1)} kcal/mol
                     </span>
@@ -327,22 +414,18 @@ export default async function MedicinePage(props: {
 }
 
 function EvidencePart({
-  glyph,
-  color,
+  kind,
   title,
   children,
 }: {
-  glyph: string;
-  color: string;
+  kind: "clinical" | "experimental";
   title: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
-      <p className="m-0 mb-2 flex items-center gap-2 font-display text-[15px] font-semibold text-ink">
-        <span aria-hidden="true" style={{ color }}>
-          {glyph}
-        </span>
+      <p className="m-0 mb-2.5 flex items-center gap-2 font-display text-[15px] font-semibold text-ink">
+        <EvidenceIcon kind={kind} size={12} />
         {title}
       </p>
       {children}
@@ -350,25 +433,11 @@ function EvidencePart({
   );
 }
 
-function State({
-  tone,
-  head,
-  children,
-}: {
-  tone: "none" | "unchecked";
-  head: string;
-  children: React.ReactNode;
-}) {
+function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p
-        className="m-0 font-mono text-[11px] uppercase tracking-[0.1em]"
-        style={{ color: tone === "none" ? "var(--color-none)" : "var(--color-unchecked)" }}
-      >
-        <span aria-hidden="true">{tone === "none" ? "○ " : "— "}</span>
-        {head}
-      </p>
-      <p className="m-0 mt-1.5 text-[13px] leading-snug text-ink-2">{children}</p>
+      <dt className="text-[12px] text-muted">{label}</dt>
+      <dd className="m-0 mt-0.5 font-mono text-[18px] font-medium tabular-nums text-ink">{value}</dd>
     </div>
   );
 }

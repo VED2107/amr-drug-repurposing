@@ -226,8 +226,8 @@ describe("the dashboard counts medicines, not prediction rows", () => {
       [floor],
     );
 
-    const page = await html("/");
-    await assertCurrent("/", page);
+    const page = await html("/dashboard");
+    await assertCurrent("/dashboard", page);
     for (const [label, value] of Object.entries(row)) {
       assert.ok(page.includes(grouped(value)), `dashboard should show ${label} = ${grouped(value)}`);
     }
@@ -268,7 +268,7 @@ describe("the dashboard counts medicines, not prediction rows", () => {
     );
     assert.ok(Number(single.n) > 0, "single-pathogen medicines exist and are part of the union");
 
-    const page = await html("/");
+    const page = await html("/dashboard");
     for (const r of perPathogen) {
       assert.ok(page.includes(grouped(r.n)), `dashboard should show ${r.pathogen_key} = ${grouped(r.n)}`);
     }
@@ -295,6 +295,17 @@ describe("a medicine opens with its own four predictions", () => {
       assert.ok(page.includes(shown(r.probability)), `${r.pathogen_key} should read ${shown(r.probability)}`);
     }
     assert.ok(page.includes("AI-predicted activity"), "every percentage carries its label");
+  });
+
+  it("draws the medicine's own structure, and a structure for each listed medicine", async () => {
+    const [self] = await sql`
+      select d.molecule_id from drugs d join molecules m on m.molecule_id = d.molecule_id
+       where lower(d.generic_name) = 'levoketoconazole' and m.is_valid limit 1`;
+    const page = await html(`/investigate/${self.molecule_id}?p=mtb`);
+    assert.ok(page.includes('aria-label="Chemical structure of Levoketoconazole"'), "own structure is drawn");
+    const drawn = (page.match(/aria-label="Chemical structure of /g) ?? []).length;
+    assert.ok(drawn >= 2, "listed medicines carry their structures too");
+    assert.ok(page.includes("<svg"), "the drawing is inline SVG");
   });
 
   it("lists other medicines above the floor, excluding itself, and each one opens", async () => {
@@ -384,7 +395,7 @@ describe("registered studies filter by condition", () => {
     const [row] = await sql`
       select count(distinct nct_id) as n from clinical_trials
        where (' ' || replace(lower(conditions), ';', ' ') || ' ') like '%tuberculosis%'`;
-    const page = await html("/?sc=tuberculosis");
+    const page = await html("/dashboard?sc=tuberculosis");
     assert.ok(page.includes(grouped(row.n)), `shows ${grouped(row.n)} studies`);
     assert.ok(/does not establish a positive result/.test(page));
   });
@@ -396,18 +407,75 @@ describe("registered studies filter by condition", () => {
 });
 
 describe("retired sections stay retired", () => {
-  for (const route of ["/dashboard", "/screening", "/candidates", "/explorer", "/models", "/runs", "/retraining"]) {
+  for (const route of ["/screening", "/candidates", "/explorer", "/models", "/runs", "/retraining"]) {
     it(`${route} redirects to the dashboard`, async () => {
       const res = await fetch(`${BASE_URL}${route}`, { redirect: "manual" });
       assert.ok([307, 308].includes(res.status), `${route} should redirect`);
-      assert.equal(new URL(res.headers.get("location"), BASE_URL).pathname, "/");
+      assert.equal(new URL(res.headers.get("location"), BASE_URL).pathname, "/dashboard");
     });
   }
 });
 
+describe("the overview explains, and discovery waits for a search", () => {
+  it("the overview shows the live counts in plain words", async () => {
+    const floor = discoveryThreshold();
+    const [row] = await sql.unsafe(
+      `select
+         (select count(distinct molecule_id) from drugs where molecule_id is not null) as medicines,
+         (select count(distinct p.molecule_id) from predictions p ${ACTIVE}
+           where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)) as with_activity`,
+      [floor],
+    );
+    const page = await html("/");
+    await assertCurrent("/", page);
+    assert.ok(page.includes(grouped(row.medicines)) && page.includes(grouped(row.with_activity)));
+    assert.ok(/What is drug repurposing\?/.test(page) && /How to read a result/.test(page));
+  });
+
+  for (const route of ["/", "/dashboard"]) {
+    it(`${route} lists no candidates before a search`, async () => {
+      const page = await html(route);
+      assert.ok(!page.includes(">Other medicines to investigate<"), "candidates appear only on a result");
+    });
+  }
+});
+
+describe("documented evidence links to its source", () => {
+  it("each laboratory record links to its ChEMBL assay and publication", async () => {
+    const [rec] = await sql`
+      select b.molecule_id, b.assay_chembl_id, b.document_chembl_id from bioactivity b
+       where b.molecule_id = 'MYSWGUAQZAJSOK-UHFFFAOYSA-N' and b.label is not null
+       order by b.pathogen_key, case when b.document_year is null then 1 else 0 end,
+                b.document_year desc, b.assay_chembl_id
+       limit 1`;
+    const page = await html(`/investigate/${rec.molecule_id}`);
+    assert.ok(page.includes(`/chembl/explore/assay/${rec.assay_chembl_id}`), "assay link");
+    assert.ok(page.includes(`/chembl/explore/document/${rec.document_chembl_id}`), "publication link");
+    assert.ok(page.includes("/chembl/explore/compound/CHEMBL8"), "compound link");
+  });
+
+  it("a docking result links to the protein structure it used", async () => {
+    const [row] = await sql`
+      select t.pdb_id from docking_results dr join targets t on t.target_key = dr.target_key
+       where dr.molecule_id = 'XMAYWYJOQHXEEK-ZEQKJWHPSA-N' and dr.status = 'ok' limit 1`;
+    const page = await html("/investigate/XMAYWYJOQHXEEK-ZEQKJWHPSA-N");
+    assert.ok(page.includes(`rcsb.org/structure/${row.pdb_id}`));
+  });
+
+  it("every registered study links to its registry record", async () => {
+    const page = await html("/investigate/XMAYWYJOQHXEEK-ZEQKJWHPSA-N");
+    const [n] = await sql`
+      select count(distinct nct_id) as n from clinical_trials
+       where molecule_id = 'XMAYWYJOQHXEEK-ZEQKJWHPSA-N'`;
+    const links = page.match(/href="https:\/\/clinicaltrials\.gov\/[^"]+"/g) ?? [];
+    assert.equal(links.length, Number(n.n), "one registry link per study");
+  });
+});
+
 const PUBLIC_ROUTES = [
   "/",
-  "/?sc=tuberculosis",
+  "/dashboard",
+  "/dashboard?sc=tuberculosis",
   "/investigate/XMAYWYJOQHXEEK-ZEQKJWHPSA-N",
   "/investigate?condition=Tuberculosis",
   "/investigate?condition=Migraine",

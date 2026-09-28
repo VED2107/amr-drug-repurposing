@@ -6,6 +6,7 @@ import {
   ComputationalBlock,
   DocumentedBlock,
   DoesNotEstablish,
+  EvidenceIcon,
   SectionHead,
   StudyList,
   STUDY_NOTE,
@@ -52,12 +53,12 @@ async function MedicineResolution({ text }: { text: string }) {
   if (result.kind === "unscreened") {
     return (
       <Page>
-        <Kicker>Medicine</Kicker>
         <h1 className="m-0 font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
           {medicineName(result.name)}
         </h1>
-        <div className="mt-6 max-w-[70ch] border border-rule bg-raised p-4 md:p-6" style={{ borderLeft: "3px solid var(--color-unchecked)" }}>
-          <p className="m-0 font-display text-[16px] font-semibold text-ink">
+        <div className="mt-6 max-w-[70ch] rounded-card border border-rule bg-raised p-4 md:p-6">
+          <p className="m-0 flex items-center gap-2.5 font-display text-[16px] font-semibold text-ink">
+            <EvidenceIcon kind="unchecked" />
             No AI prediction for this medicine
           </p>
           <p className="m-0 mt-2 text-[14px] leading-relaxed text-ink-2">
@@ -76,7 +77,6 @@ async function MedicineResolution({ text }: { text: string }) {
 
   return (
     <Page>
-      <Kicker>Medicine search</Kicker>
       <h1 className="m-0 font-display text-[clamp(26px,3.4vw,40px)] font-semibold leading-[1.1] tracking-[-0.02em] text-ink">
         &ldquo;{text}&rdquo;
       </h1>
@@ -136,7 +136,6 @@ async function ConditionView({ condition, params }: { condition: string; params:
 
   return (
     <Page>
-      <Kicker>Condition</Kicker>
       <h1 className="m-0 font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
         {condition}
       </h1>
@@ -148,13 +147,14 @@ async function ConditionView({ condition, params }: { condition: string; params:
           <span className="italic text-muted">({pathogen.fullName})</span>
         </p>
       ) : (
-        <div
-          role="note"
-          className="mt-5 max-w-[72ch] border border-rule bg-raised p-4"
-          style={{ borderLeft: "3px solid var(--color-unchecked)" }}
-        >
-          <p className="m-0 text-[14px] leading-relaxed text-ink">{NO_MODEL_NOTICE}</p>
-          <p className="m-0 mt-1.5 text-[13px] leading-relaxed text-ink-2">
+        <div role="note" className="mt-5 max-w-[72ch] rounded-card border border-rule bg-raised p-4">
+          <p className="m-0 flex items-start gap-2.5 text-[14px] leading-relaxed text-ink">
+            <span className="mt-1.5">
+              <EvidenceIcon kind="unchecked" />
+            </span>
+            {NO_MODEL_NOTICE}
+          </p>
+          <p className="m-0 mt-1.5 pl-6 text-[13px] leading-relaxed text-ink-2">
             What follows is documented evidence only.
           </p>
         </div>
@@ -187,7 +187,9 @@ async function ConditionView({ condition, params }: { condition: string; params:
           {pathogen ? (
             <div className="mt-6">
               <p className="m-0 mb-3 text-[13px] leading-relaxed text-ink-2">
-                <span aria-hidden="true" className="text-experimental">■ </span>
+                <span className="mr-1.5 inline-block align-[-1px]">
+                  <EvidenceIcon kind="experimental" size={11} />
+                </span>
                 Laboratory measurements against {pathogen.label} recorded in ChEMBL.
               </p>
               <MedicineLinks
@@ -284,11 +286,5 @@ function LinkGrid({ items }: { items: { moleculeId: string; name: string; detail
         </li>
       ))}
     </ul>
-  );
-}
-
-function Kicker({ children }: { children: string }) {
-  return (
-    <p className="m-0 mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{children}</p>
   );
 }

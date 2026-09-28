@@ -209,24 +209,80 @@ export async function resolveMedicine(text: string): Promise<MedicineResolution>
 export interface BestDocking {
   pathogenKey: PathogenKey;
   targetName: string;
+  pdbId: string | null;
   scoreKcalMol: number;
 }
 
 /** The best stored pose per pathogen, with the target it was computed against. */
 export async function getBestDocking(moleculeId: string): Promise<BestDocking[]> {
   const rows = await query<Record<string, unknown>>(
-    `select dr.pathogen_key, t.name as target_name, min(dr.score_kcal_mol) as best
+    `select dr.pathogen_key, t.name as target_name, t.pdb_id, min(dr.score_kcal_mol) as best
        from docking_results dr
        join targets t on t.target_key = dr.target_key
       where dr.molecule_id = ? and dr.status = 'ok' and dr.score_kcal_mol is not null
-      group by dr.pathogen_key, t.name`,
+      group by dr.pathogen_key, t.name, t.pdb_id`,
     [moleculeId],
   );
   return rows.map((r) => ({
     pathogenKey: String(r.pathogen_key) as PathogenKey,
     targetName: String(r.target_name),
+    pdbId: r.pdb_id == null ? null : String(r.pdb_id),
     scoreKcalMol: toNum(r.best) as number,
   }));
+}
+
+export interface LabRecord {
+  pathogenKey: PathogenKey;
+  assayId: string | null;
+  assayDescription: string | null;
+  activityType: string | null;
+  relation: string | null;
+  value: number | null;
+  units: string | null;
+  /** 1 measured active, 0 measured inactive, at the project's labelling cutoff. */
+  label: number;
+  documentId: string | null;
+  year: number | null;
+}
+
+/**
+ * Labelled laboratory records for one medicine, each traceable to its ChEMBL
+ * assay and source publication.
+ */
+export async function getLabRecords(moleculeId: string, limit = 150): Promise<LabRecord[]> {
+  const rows = await query<Record<string, unknown>>(
+    `select pathogen_key, assay_chembl_id, assay_description, activity_type,
+            activity_relation, activity_value, activity_units, label,
+            document_chembl_id, document_year
+       from bioactivity
+      where molecule_id = ? and label is not null
+      order by pathogen_key, case when document_year is null then 1 else 0 end,
+               document_year desc, assay_chembl_id
+      limit ?`,
+    [moleculeId, limit],
+  );
+  const s = (v: unknown) => (v == null || v === "" ? null : String(v));
+  return rows.map((r) => ({
+    pathogenKey: String(r.pathogen_key) as PathogenKey,
+    assayId: s(r.assay_chembl_id),
+    assayDescription: s(r.assay_description),
+    activityType: s(r.activity_type),
+    relation: s(r.activity_relation),
+    value: toNum(r.activity_value),
+    units: s(r.activity_units),
+    label: toNum(r.label) ?? 0,
+    documentId: s(r.document_chembl_id),
+    year: toNum(r.document_year),
+  }));
+}
+
+/** The validated structure of one medicine, or null when it has none. */
+export async function getStructureSmiles(moleculeId: string): Promise<string | null> {
+  const row = await queryOne<Record<string, unknown>>(
+    `select canonical_smiles from molecules where molecule_id = ? and is_valid`,
+    [moleculeId],
+  );
+  return row?.canonical_smiles == null ? null : String(row.canonical_smiles);
 }
 
 /**
@@ -261,6 +317,8 @@ export interface Candidate {
   probability: number;
   /** Laboratory records exist for this medicine against this pathogen. */
   labMeasured: boolean;
+  /** The structure the models were given, for its drawing. */
+  smiles: string | null;
 }
 
 export interface CandidatePage {
@@ -317,7 +375,9 @@ export async function getCandidates(options: {
 
   const count = await queryOne<Record<string, unknown>>(`select count(*) as n ${from}`, base);
   const rows = await query<Record<string, unknown>>(
-    `select d.molecule_id, d.generic_name, p.probability, coalesce(ba.n, 0) as measured
+    `select d.molecule_id, d.generic_name, p.probability, coalesce(ba.n, 0) as measured,
+            (select mo.canonical_smiles from molecules mo
+              where mo.molecule_id = d.molecule_id and mo.is_valid) as smiles
        ${from}
       order by p.probability desc, d.generic_name asc
       limit ? offset ?`,
@@ -334,6 +394,7 @@ export async function getCandidates(options: {
       name: String(r.generic_name),
       probability: toNum(r.probability) as number,
       labMeasured: (toNum(r.measured) ?? 0) > 0,
+      smiles: r.smiles == null ? null : String(r.smiles),
     })),
   };
 }

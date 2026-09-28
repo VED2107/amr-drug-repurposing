@@ -2,9 +2,10 @@
 
 **Status:** the rules in §0, §4 and §6 still govern the website. The
 information architecture in §1 is **superseded** (2026-09-28): the production
-site in `web/` is now two views. `/` is the search, three counts, the four
-pathogens and the registered studies. `/investigate` covers a medicine or a
-condition, and each condition lists documented medicines separately from
+site in `web/` is now three views. `/` is a plain-language overview for
+pharmacy and medical students. `/dashboard` is the search, three counts, the
+four pathogens and the registered studies. `/investigate` covers a medicine
+or a condition, and each condition lists documented medicines separately from
 other medicines with AI-predicted activity ≥40%. The ≥40% floor is a website
 discovery threshold only (`web/src/lib/science.ts:DISCOVERY_THRESHOLD`). It is
 not the models' decision boundary and not the pipeline's 0.60 candidate

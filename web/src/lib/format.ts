@@ -44,3 +44,13 @@ export function medicineName(value: string): string {
     .toLowerCase()
     .replace(/(^|[\s;,/(-])([a-z])/g, (_, lead: string, ch: string) => lead + ch.toUpperCase());
 }
+
+/** ChEMBL unit strings ("ug.mL-1") as a reader writes them ("µg/mL"). */
+export function formatUnits(value: string | null): string {
+  if (!value) return "";
+  return value
+    .replace(/^ug\.mL-1$/, "µg/mL")
+    .replace(/^mg\.L-1$/, "mg/L")
+    .replace(/^ug\/ml$/i, "µg/mL")
+    .replace(/^uM$/, "µM");
+}

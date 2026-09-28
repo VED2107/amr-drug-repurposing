@@ -45,8 +45,7 @@ export default function Error({
         </p>
 
         <p
-          className="m-0 mt-5 bg-raised px-4 py-4 text-[13px] leading-relaxed text-ink-2"
-          style={{ borderLeft: "2px solid var(--color-none)" }}
+          className="m-0 mt-5 rounded-card border border-rule bg-raised px-4 py-4 text-[13px] leading-relaxed text-ink-2"
         >
           This is a failure to <em>reach</em> the evidence. It is not a statement that
           there is no evidence, and it says nothing about any medicine.

@@ -429,3 +429,29 @@ table {
     animation-delay: 0s !important;
   }
 }
+
+/*
+  Structure drawings arrive as fixed-size SVG. Unpinned here so a drawing
+  scales with its column instead of clipping on a phone; carbon and bonds are
+  rewritten to `currentColor` at render time, so the skeleton takes the page's
+  ink and the heteroatom colours stay chemical. Clipped to the viewBox: atom
+  labels painted slightly outside it would otherwise widen the page.
+*/
+.amr-structure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* A card that is a link: the edge answers the pointer, nothing moves. */
+.amr-card {
+  transition: border-color 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 160ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-card:hover {
+    border-color: var(--color-ink-2);
+    background-color: var(--color-pure);
+  }
+}
