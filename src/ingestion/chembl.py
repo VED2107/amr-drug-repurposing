@@ -116,8 +116,12 @@ class ChemblClient:
                 if not smiles:
                     continue
                 props = mol.get("molecule_properties") or {}
+                hierarchy = mol.get("molecule_hierarchy") or {}
                 yield {
                     "chembl_id": mol.get("molecule_chembl_id"),
+                    # ChEMBL's curated active moiety: a salt or hydrate points at
+                    # its free form; an ester or other prodrug is its own parent.
+                    "parent_chembl_id": hierarchy.get("parent_chembl_id") or mol.get("molecule_chembl_id"),
                     "pref_name": (mol.get("pref_name") or "").strip() or None,
                     "canonical_smiles": smiles,
                     "inchi_key": structures.get("standard_inchi_key"),
@@ -146,6 +150,31 @@ class ChemblClient:
                 break
 
         log.info("ChEMBL: %d approved molecules with structures", yielded)
+
+    def molecules_by_id(self, chembl_ids: list[str]) -> list[dict[str, Any]]:
+        """Structures and names for specific ChEMBL molecules (e.g. parents that
+        are not themselves in the approved set)."""
+        out: list[dict[str, Any]] = []
+        ids = sorted(set(chembl_ids))
+        for i in range(0, len(ids), 50):
+            chunk = ids[i : i + 50]
+            payload = self.http.get_json(
+                f"{self.base}/molecule.json",
+                params={"molecule_chembl_id__in": ",".join(chunk), "limit": len(chunk)},
+            )
+            for mol in payload.get("molecules") or []:
+                smiles = (mol.get("molecule_structures") or {}).get("canonical_smiles")
+                if not smiles:
+                    continue
+                hierarchy = mol.get("molecule_hierarchy") or {}
+                out.append({
+                    "chembl_id": mol.get("molecule_chembl_id"),
+                    "parent_chembl_id": hierarchy.get("parent_chembl_id") or mol.get("molecule_chembl_id"),
+                    "pref_name": (mol.get("pref_name") or "").strip() or None,
+                    "canonical_smiles": smiles,
+                    "synonyms": [],
+                })
+        return out
 
     def close(self) -> None:
         self.http.close()

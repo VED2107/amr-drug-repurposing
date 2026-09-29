@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS drugs (
     approval_date     TEXT,
     chembl_id         TEXT,
     match_method      TEXT,
+    ingredients       TEXT,              -- the product's full Orange Book ingredient field
     first_seen_at     TEXT NOT NULL,
     processing_status TEXT NOT NULL DEFAULT 'pending',
     prediction_status TEXT NOT NULL DEFAULT 'pending',
@@ -346,6 +347,44 @@ CREATE TABLE IF NOT EXISTS clinical_queries (
     retrieved_at TEXT NOT NULL
 );
 
+-- ------------------------------------------------------- existing use ----
+-- What each approved medicine is already classified and approved for, from WHO
+-- ATC codes (via ChEMBL), FDA Established Pharmacologic Classes (openFDA labels)
+-- and ChEMBL's approved indications. See src/ingestion/classification.py.
+CREATE TABLE IF NOT EXISTS medicine_classes (
+    molecule_id  TEXT NOT NULL REFERENCES molecules(molecule_id),
+    system       TEXT NOT NULL,          -- 'WHO ATC' | 'FDA EPC'
+    code         TEXT NOT NULL,          -- ATC level-5 code, or the FDA class text
+    name         TEXT,                   -- ATC substance name / FDA class
+    group_name   TEXT,                   -- ATC level-4 description
+    therapeutic_group TEXT,              -- ATC level-2 description
+    source_ref   TEXT,                   -- ChEMBL id or FDA application number
+    retrieved_at TEXT NOT NULL,
+    PRIMARY KEY (molecule_id, system, code)
+);
+
+CREATE TABLE IF NOT EXISTS medicine_indications (
+    molecule_id  TEXT NOT NULL REFERENCES molecules(molecule_id),
+    indication   TEXT NOT NULL,
+    mesh_heading TEXT,
+    source_ref   TEXT,                   -- ChEMBL id the indication is recorded on
+    ref_url      TEXT,                   -- the FDA / DailyMed label ChEMBL cites
+    retrieved_at TEXT NOT NULL,
+    PRIMARY KEY (molecule_id, indication)
+);
+
+-- One row per medicine whose classification was looked up. No row means "not
+-- yet checked"; status 'unclassified' means "checked, no source classifies it".
+CREATE TABLE IF NOT EXISTS medicine_use_status (
+    molecule_id      TEXT PRIMARY KEY REFERENCES molecules(molecule_id),
+    status           TEXT NOT NULL,      -- antibacterial | other_anti_infective | not_anti_infective | unclassified
+    is_antibacterial TEXT NOT NULL,      -- 'true' | 'false' | 'unclassified'
+    basis            TEXT,               -- the codes/classes that decided it, '; '-separated
+    rule_version     TEXT NOT NULL,
+    fda_label_set_id TEXT,
+    retrieved_at     TEXT NOT NULL
+);
+
 -- ------------------------------------------------------------- pipeline ----
 CREATE TABLE IF NOT EXISTS pipeline_runs (
     run_id             TEXT PRIMARY KEY,
@@ -413,6 +452,8 @@ def session(cfg: Config | None = None, path: Path | None = None) -> Iterator[sql
 #: an existing table untouched, so new columns are added explicitly.
 _MIGRATIONS: list[tuple[str, str, str]] = [
     ("model_versions", "curves_json", "TEXT"),
+    ("drugs", "ingredients", "TEXT"),
+    ("medicine_use_status", "is_antibacterial", "TEXT"),
 ]
 
 

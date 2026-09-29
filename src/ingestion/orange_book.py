@@ -9,8 +9,10 @@ be retrieved. Which source was actually used is recorded on every drug row in
 ``approval_source`` so the dashboard never overstates provenance.
 
 The Orange Book contains names, not structures. Structures come from ChEMBL by
-matching the normalised ingredient name against ChEMBL preferred names and
-synonyms; the match method is stored per drug.
+matching each active ingredient's name against ChEMBL preferred names and
+synonyms — exactly first, then without counter-ions — and a name that points at
+disagreeing structures is left unmatched rather than guessed. The match method
+is stored per product row.
 """
 
 from __future__ import annotations
@@ -34,18 +36,27 @@ SOURCE_OPENFDA = "openFDA Drugs@FDA"
 # split so each active moiety can be matched to a structure independently.
 _COMBINATION_SPLIT = re.compile(r"\s*;\s*")
 
-# Salt and hydrate suffixes that are stripped when matching a drug name to a
-# ChEMBL molecule. The parent moiety is what carries the structure.
-_SALT_SUFFIXES = [
-    "hydrochloride", "hydrobromide", "hydroiodide", "sulfate", "sulphate",
-    "phosphate", "maleate", "mesylate", "besylate", "tosylate", "citrate",
-    "tartrate", "succinate", "fumarate", "acetate", "lactate", "gluconate",
-    "nitrate", "bitartrate", "dihydrochloride", "sodium", "potassium",
-    "calcium", "magnesium", "chloride", "bromide", "monohydrate",
-    "dihydrate", "trihydrate", "anhydrous", "pamoate", "palmitate",
-    "stearate", "valerate", "propionate", "dipropionate", "furoate",
-    "xinafoate", "embonate", "edisylate", "napsylate", "oxalate",
+# Counter-ions and water of hydration: words whose removal never changes the
+# active moiety, because standardisation strips them from the structure too.
+# Ester-forming acids are deliberately absent (acetate, propionate, valerate,
+# succinate, phosphate, palmitate, butyrate, furoate, ...): hydrocortisone
+# acetate and testosterone propionate are different molecules from hydrocortisone
+# and testosterone, and "phosphate" / "succinate" are esters in
+# dexamethasone sodium phosphate and hydrocortisone sodium succinate.
+_COUNTER_IONS = [
+    "hydrochloride", "dihydrochloride", "hydrobromide", "hydroiodide",
+    "sulfate", "sulphate", "bisulfate", "mesylate", "dimesylate", "besylate",
+    "besilate", "tosylate", "maleate", "fumarate", "hemifumarate", "tartrate",
+    "bitartrate", "d-tartrate", "l-tartrate", "citrate", "hyclate", "napsylate",
+    "edisylate", "pamoate", "embonate", "oxalate", "nitrate", "tannate",
+    "polistirex", "polacrilex", "polygalacturonate", "sodium", "disodium", "trisodium", "potassium",
+    "dipotassium", "calcium", "magnesium", "meglumine", "tromethamine", "choline",
+    "hydrate", "monohydrate", "dihydrate", "trihydrate", "sesquihydrate",
+    "hemihydrate", "pentahydrate", "heptahydrate", "anhydrous",
 ]
+
+# Kept for importers: the old name of the list.
+_SALT_SUFFIXES = _COUNTER_IONS
 
 
 @dataclass
@@ -69,23 +80,36 @@ class ApprovedProduct:
         return f"{self.source[:2].upper()}-{appl}-{brand}"[:120]
 
 
-def normalize_drug_name(name: str | None) -> str:
-    """Lower-case, strip salt/hydrate suffixes and punctuation for matching."""
+def exact_name_key(name: str | None) -> str:
+    """An ingredient name for exact comparison: case, punctuation and
+    parenthetical qualifiers aside, nothing removed."""
     if not name:
         return ""
     text = str(name).strip().lower()
     text = re.sub(r"\(.*?\)", " ", text)          # drop parenthetical qualifiers
     text = re.sub(r"[^a-z0-9\s-]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", text).strip()
 
-    # Strip trailing salt words, repeatedly: "metoprolol succinate" -> "metoprolol".
+
+def normalize_drug_name(name: str | None) -> str:
+    """The name without trailing counter-ions or water of hydration.
+
+    "ciprofloxacin hydrochloride" → "ciprofloxacin"; "hydrocortisone acetate"
+    stays as it is, because acetate is an ester there, not a salt. A name that
+    would be left empty or as a bare ion ("sodium chloride") is returned whole.
+    """
+    text = exact_name_key(name)
+    if not text:
+        return ""
     changed = True
     while changed:
         changed = False
-        for suffix in _SALT_SUFFIXES:
+        for suffix in _COUNTER_IONS:
             if text.endswith(" " + suffix):
-                text = text[: -(len(suffix) + 1)].strip()
-                changed = True
+                stripped = text[: -(len(suffix) + 1)].strip()
+                if stripped and stripped not in _COUNTER_IONS:
+                    text = stripped
+                    changed = True
     return text
 
 
@@ -234,50 +258,189 @@ class OrangeBookClient:
         self.http.close()
 
 
-def build_name_index(chembl_molecules: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Index ChEMBL approved molecules by normalised preferred name and synonyms."""
-    index: dict[str, dict[str, Any]] = {}
+def build_name_index(chembl_molecules: Iterable[dict[str, Any]]) -> "NameIndex":
+    """Index ChEMBL approved molecules by name, keeping every molecule per name.
+
+    Nothing is dropped when two molecules share a name: the old index kept the
+    first molecule seen, so "hydrocortisone" meant whichever hydrocortisone
+    ester ChEMBL happened to list first. Here a name keeps all its molecules and
+    the matcher decides, by structure, whether they agree.
+    """
+    index = NameIndex()
     for mol in chembl_molecules:
-        names = []
         if mol.get("pref_name"):
-            names.append(mol["pref_name"])
-        names.extend(mol.get("synonyms") or [])
-        for name in names:
-            key = normalize_drug_name(name)
-            if key and key not in index:
-                index[key] = mol
+            index.add(mol["pref_name"], mol, preferred=True)
+        for name in mol.get("synonyms") or []:
+            index.add(name, mol, preferred=False)
     return index
 
 
-def match_product_to_molecule(
-    product: ApprovedProduct, name_index: dict[str, dict[str, Any]]
-) -> tuple[dict[str, Any] | None, str]:
-    """Map an approved product to a ChEMBL molecule by name.
+@dataclass
+class NameIndex:
+    """Exact names and counter-ion-free names → the ChEMBL molecules carrying them."""
 
-    Returns (molecule, match_method). Combination products match on their first
-    resolvable component, and that is recorded in the match method so the
-    dashboard can show that only one moiety was structurally resolved.
+    exact: dict[str, list[tuple[bool, dict[str, Any]]]] = None  # type: ignore[assignment]
+    counter_ion_free: dict[str, list[tuple[bool, dict[str, Any]]]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        self.exact = {}
+        self.counter_ion_free = {}
+
+    def add(self, name: str, mol: dict[str, Any], *, preferred: bool) -> None:
+        for table, key in ((self.exact, exact_name_key(name)), (self.counter_ion_free, normalize_drug_name(name))):
+            if not key:
+                continue
+            entries = table.setdefault(key, [])
+            if not any(m is mol and p == preferred for p, m in entries):
+                entries.append((preferred, mol))
+
+    def __len__(self) -> int:
+        return len(self.exact)
+
+
+@dataclass
+class ComponentMatch:
+    """One active ingredient of a product and the structure it resolved to."""
+
+    component: str
+    #: The ChEMBL molecule chosen, or None when no structure is reliable.
+    molecule: dict[str, Any] | None
+    #: exact_name | counter_ion | ambiguous_name | unmatched, prefixed with
+    #: ``combination_component_<n>_`` for a component of a combination product.
+    method: str
+
+
+def _choose(
+    entries: list[tuple[bool, dict[str, Any]]], resolve: "Resolver"
+) -> tuple[dict[str, Any] | None, bool]:
+    """Pick the molecule a name denotes, or report that it is ambiguous.
+
+    Preferred names outrank synonyms. Several molecules at the best rank are
+    accepted only when they all standardise to one structure (they are the same
+    active ingredient filed twice); otherwise the name is ambiguous and no
+    structure is assigned. The choice among agreeing records is the lowest
+    ChEMBL id, so it never depends on the order ChEMBL returned them in.
+    """
+    for rank in (True, False):
+        tier = [m for p, m in entries if p is rank]
+        if not tier:
+            continue
+        structures = {resolve(m["chembl_id"]) for m in tier}
+        structures.discard(None)
+        if len(structures) > 1:
+            return None, True
+        if not structures:
+            continue
+        chosen = sorted(
+            (m for m in tier if resolve(m["chembl_id"]) is not None),
+            key=lambda m: (len(m["chembl_id"]), m["chembl_id"]),
+        )[0]
+        return chosen, False
+    return None, False
+
+
+#: Given a ChEMBL id, the standardised structure id it becomes (or None when its
+#: structure fails standardisation).
+Resolver = Any
+
+
+def match_components(
+    product: ApprovedProduct, name_index: NameIndex, resolve: Resolver
+) -> list[ComponentMatch]:
+    """Map every active ingredient of a product to a structure, deterministically.
+
+    1. Exact ingredient name (case, punctuation and qualifiers aside).
+    2. The same name without counter-ions or water of hydration
+       ("metoprolol succinate" is not stripped — succinate can be an ester —
+       but "ciprofloxacin hydrochloride" → "ciprofloxacin").
+    3. Nothing else. No leading-word or fuzzy guess: a product that neither
+       step resolves, or that resolves to disagreeing structures, is recorded
+       as unmatched or ambiguous — "structure not reliably matched".
+
+    A combination product yields one match per component, so each active
+    ingredient is represented rather than whichever happened to come first.
     """
     components = split_ingredients(product.generic_name)
-
+    out: list[ComponentMatch] = []
     for i, component in enumerate(components):
-        key = normalize_drug_name(component)
-        if not key:
-            continue
-        hit = name_index.get(key)
-        if hit:
-            method = "exact_name" if len(components) == 1 else f"combination_component_{i + 1}"
-            return hit, method
+        prefix = f"combination_component_{i + 1}_" if len(components) > 1 else ""
+        molecule = None
+        method = "unmatched"
+        for table, label in ((name_index.exact, "exact_name"), (name_index.counter_ion_free, "counter_ion")):
+            key = exact_name_key(component) if label == "exact_name" else normalize_drug_name(component)
+            entries = table.get(key) if key else None
+            if not entries:
+                continue
+            chosen, ambiguous = _choose(entries, resolve)
+            if ambiguous:
+                method = "ambiguous_name"
+                break
+            if chosen is not None:
+                molecule, method = chosen, label
+                break
+        out.append(ComponentMatch(component=component, molecule=molecule, method=prefix + method))
+    return out
 
-    # Single-token fallback: "amoxicillin trihydrate" already normalises, but
-    # multi-word brand-style ingredients sometimes need the leading token.
-    for component in components:
-        key = normalize_drug_name(component)
-        first = key.split(" ")[0] if key else ""
-        if len(first) >= 5 and first in name_index:
-            return name_index[first], "leading_token"
 
+def match_product_to_molecule(
+    product: ApprovedProduct, name_index: NameIndex, resolve: Resolver | None = None
+) -> tuple[dict[str, Any] | None, str]:
+    """A single-ingredient product's structure, or the first component's.
+
+    Kept for callers that need one answer per product; the ingestion stages use
+    :func:`match_components`.
+    """
+    resolve = resolve or (lambda chembl_id: chembl_id)
+    matches = match_components(product, name_index, resolve)
+    for m in matches:
+        if m.molecule is not None:
+            return m.molecule, m.method
+    if any(m.method.endswith("ambiguous_name") for m in matches):
+        return None, "ambiguous_name"
     return None, "unmatched"
+
+
+@dataclass
+class ProductRow:
+    """One row of the ``drugs`` table: an approved product, or one active
+    ingredient of a combination product."""
+
+    drug_id: str
+    #: The ingredient this row stands for (the whole ingredient field for a
+    #: single-ingredient product, one component for a combination).
+    generic_name: str
+    #: The product's full Orange Book ingredient field.
+    ingredients: str
+    product: ApprovedProduct
+    chembl_id: str | None
+    match_method: str
+
+
+def product_rows(
+    products: Iterable[ApprovedProduct], name_index: NameIndex, resolve: Resolver
+) -> Iterator[ProductRow]:
+    """Every unique product as ``drugs`` rows, one per active ingredient.
+
+    A single-ingredient product keeps its own id. A combination product becomes
+    one row per component, ``<product id>~<n>``, so every active ingredient is
+    represented, each with its own structure or its own "not reliably matched".
+    """
+    for product in iter_unique_products(products):
+        matches = match_components(product, name_index, resolve)
+        single = len(matches) <= 1
+        if not matches:
+            yield ProductRow(product.drug_id, product.generic_name, product.generic_name,
+                             product, None, "unmatched")
+            continue
+        for i, m in enumerate(matches):
+            yield ProductRow(
+                drug_id=product.drug_id if single else f"{product.drug_id}~{i + 1}"[:128],
+                generic_name=product.generic_name if single else m.component,
+                ingredients=product.generic_name,
+                product=product,
+                chembl_id=m.molecule["chembl_id"] if m.molecule else None,
+                match_method=m.method,
+            )
 
 
 def iter_unique_products(products: Iterable[ApprovedProduct]) -> Iterator[ApprovedProduct]:

@@ -4,15 +4,18 @@ import { StudyList, STUDY_NOTE } from "@/components/investigate";
 import { Page } from "@/components/primitives";
 import { InvestigateSearch } from "@/components/search/InvestigateSearch";
 import { SearchField } from "@/components/search/SearchField";
-import { conditionForPathogen, conditionTerms, getDashboardSummary, getStudies } from "@/lib/queries/investigate";
+import { conditionTerms, getStudies } from "@/lib/queries/investigate";
+import { getRepurposingSummary } from "@/lib/queries/repurposing";
 import { DISCOVERY_THRESHOLD_TEXT } from "@/lib/science";
 import { firstValue, numberParam, type RawSearchParams } from "@/lib/url";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The dashboard: the search, three numbers, the four bacteria, the registered
- * studies. Every figure is read from the database on this request.
+ * The dashboard: the search, the library and the repurposing candidates within
+ * it, the four bacteria, the downloads and the registered studies. Every figure
+ * is read from the database on this request, from the same definition the lists
+ * and the CSV files use.
  */
 export default async function Dashboard(props: { searchParams: Promise<RawSearchParams> }) {
   const params = await props.searchParams;
@@ -20,7 +23,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
   const studyPage = numberParam(params, "sp") ?? 1;
 
   const [summary, studies] = await Promise.all([
-    getDashboardSummary(),
+    getRepurposingSummary(),
     getStudies({
       terms: studyCondition ? conditionTerms(studyCondition, null) : undefined,
       page: studyPage,
@@ -45,18 +48,63 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
       </header>
 
       <section aria-label="Dataset" className="mt-14 grid gap-px overflow-hidden rounded-card border border-rule bg-rule sm:grid-cols-3">
-        <Figure value={n(summary.medicines)} label="Approved medicines in the dataset" />
+        <Figure
+          value={n(summary.medicines)}
+          label="Approved medicines"
+          note="Approved medicines matched to the FDA Orange Book, antibacterials included"
+        />
         <Figure
           value={n(summary.withActivity)}
-          label="Medicines with AI-predicted activity"
-          note={`AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT} against at least one supported pathogen; each medicine counted once`}
-          accent
+          label={`Medicines with ${DISCOVERY_THRESHOLD_TEXT} AI-predicted activity`}
+          note="Against at least one of the four supported pathogens; each medicine counted once"
         />
         <Figure
-          value={n(summary.registeredStudies)}
-          label="Registered clinical studies"
-          note="ClinicalTrials.gov registrations naming these medicines"
+          value={n(summary.candidates)}
+          label="Repurposing candidates"
+          note="Of those, the medicines that are not already antibacterials"
+          accent
         />
+      </section>
+
+      <section aria-labelledby="funnel-h" className="mt-4 rounded-card border border-rule bg-raised p-4 md:p-5">
+        <h2 id="funnel-h" className="m-0 text-[13px] font-medium text-ink-2">
+          How the repurposing candidates are counted
+        </h2>
+        <ol className="m-0 mt-3 grid list-none gap-2 p-0 text-[13px] sm:grid-cols-2 lg:grid-cols-5">
+          <Stage value={n(summary.medicines)} text="approved medicines" />
+          <Stage
+            value={n(summary.withActivity)}
+            text={`with AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT} against at least one pathogen`}
+          />
+          <Stage
+            value={`− ${n(summary.existingAntibacterials)}`}
+            text="already antibacterial medicines, set aside (WHO ATC and FDA classification)"
+          />
+          <Stage
+            value={`− ${n(summary.needsReview)}`}
+            text="needing review: no WHO ATC code or FDA class says whether they are antibacterials"
+          />
+          <Stage value={n(summary.candidates)} text="repurposing candidates" accent />
+        </ol>
+        <p className="m-0 mt-3 text-[12px] leading-relaxed text-muted">
+          Medicines needing review stay in the approved-medicine download, marked
+          &ldquo;unclassified&rdquo;. They are not assumed to be non-antibacterials, so they are
+          not counted as candidates.
+        </p>
+      </section>
+
+      <section aria-labelledby="downloads-h" className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <h2 id="downloads-h" className="sr-only">
+          Downloads
+        </h2>
+        <a href="/api/export/approved-medicines" download className="amr-btn-quiet">
+          Download approved medicines (CSV)
+          <span className="font-mono text-[11px] font-normal text-muted">{n(summary.medicines)} rows</span>
+        </a>
+        <a href="/api/export/repurposing-candidates" download className="amr-btn-quiet">
+          Download repurposing candidates (CSV)
+          <span className="font-mono text-[11px] font-normal text-muted">{n(summary.candidates)} rows</span>
+        </a>
       </section>
 
       <section aria-labelledby="pathogens" className="mt-12">
@@ -70,7 +118,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
           {summary.pathogens.map((p) => (
             <li key={p.key}>
               <Link
-                href={`/investigate?condition=${encodeURIComponent(conditionForPathogen(p.key))}`}
+                href={`/investigate?pathogen=${p.key}`}
                 className="amr-card group flex h-full flex-col gap-4 rounded-card border border-rule bg-raised p-4 no-underline md:p-5"
               >
                 <span>
@@ -81,23 +129,23 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
                 </span>
                 <span className="mt-auto">
                   <span className="block font-mono text-[26px] font-medium tabular-nums leading-none text-computational">
-                    {n(p.medicines)}
+                    {n(p.candidates)}
                   </span>
                   <span className="mt-1.5 block text-[12px] leading-snug text-ink-2">
-                    Medicines with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT}
+                    Repurposing candidates with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT}
                   </span>
                   <span aria-hidden="true" className="mt-3 block h-1 rounded-full bg-sunken">
                     <span
                       className="block h-full rounded-full bg-computational"
-                      style={{ width: `${summary.medicines ? (p.medicines / summary.medicines) * 100 : 0}%` }}
+                      style={{ width: `${summary.medicines ? (p.candidates / summary.medicines) * 100 : 0}%` }}
                     />
                   </span>
                   <span className="mt-1.5 block font-mono text-[11px] tabular-nums text-muted">
-                    {n(p.medicines)} of {n(summary.medicines)} medicines
+                    {n(p.withActivity)} at {DISCOVERY_THRESHOLD_TEXT}, less {n(p.existingAntibacterials)} antibacterials and {n(p.needsReview)} needing review
                   </span>
                 </span>
                 <span className="text-[13px] font-medium text-ink decoration-accent underline-offset-4 group-hover:underline">
-                  Investigate {p.key === "mtb" ? "tuberculosis" : `${p.label} infection`} →
+                  See all {n(p.candidates)} candidates →
                 </span>
               </Link>
             </li>
@@ -188,5 +236,19 @@ function Figure({
       <p className="m-0 mt-3 font-display text-[15px] font-semibold leading-snug text-ink">{label}</p>
       {note ? <p className="m-0 mt-1 text-[12px] leading-snug text-muted">{note}</p> : null}
     </div>
+  );
+}
+
+function Stage({ value, text, accent = false }: { value: string; text: string; accent?: boolean }) {
+  return (
+    <li className="rounded-card bg-paper p-3">
+      <span
+        className="block font-mono text-[20px] font-medium tabular-nums leading-none"
+        style={{ color: accent ? "var(--color-computational)" : "var(--color-ink)" }}
+      >
+        {value}
+      </span>
+      <span className="mt-1.5 block text-[12px] leading-snug text-ink-2">{text}</span>
+    </li>
   );
 }

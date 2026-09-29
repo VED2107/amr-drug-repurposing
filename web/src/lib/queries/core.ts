@@ -94,7 +94,8 @@ function mapMedicine(r: Record<string, unknown>): Medicine {
 export async function getMedicineByMoleculeId(moleculeId: string): Promise<Medicine | null> {
   const row = await queryOne<Record<string, unknown>>(
     `select * from drugs where molecule_id = ?
-      order by length(generic_name), generic_name, drug_id limit 1`,
+      order by case when coalesce(match_method, '') like 'combination%' then 1 else 0 end,
+               length(generic_name), generic_name, drug_id limit 1`,
     [moleculeId],
   );
   return row ? mapMedicine(row) : null;
@@ -103,7 +104,11 @@ export async function getMedicineByMoleculeId(moleculeId: string): Promise<Medic
 /** Every approved product that shares one structure (brands of one molecule). */
 export async function getBrandsForMolecule(moleculeId: string): Promise<Medicine[]> {
   const rows = await query<Record<string, unknown>>(
-    `select * from drugs where molecule_id = ? order by generic_name, brand_name`,
+    // Single-ingredient products only: a combination's brand (Achromycin for a
+    // tetracycline-hydrocortisone product) is not a brand of this medicine.
+    `select * from drugs where molecule_id = ?
+        and coalesce(match_method, '') not like 'combination%'
+      order by generic_name, brand_name`,
     [moleculeId],
   );
   return rows.map(mapMedicine);

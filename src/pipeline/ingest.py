@@ -27,8 +27,7 @@ from ..ingestion.http import HttpClient, NetworkDisabledError
 from ..ingestion.orange_book import (
     OrangeBookClient,
     build_name_index,
-    iter_unique_products,
-    match_product_to_molecule,
+    product_rows,
 )
 from ..logging_utils import get_logger, setup_logging
 from .runlog import STATUS_SKIPPED, PipelineRun, stage_run
@@ -91,6 +90,13 @@ def _upsert_molecule(
         ),
     )
     return record.molecule_id, existing is None, None
+
+
+def _has_carbon(smiles: str | None) -> bool:
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles(smiles or "")
+    return mol is not None and any(a.GetAtomicNum() == 6 for a in mol.GetAtoms())
 
 
 def ingest_bioactivity(
@@ -159,7 +165,13 @@ def ingest_bioactivity(
 
 
 def ingest_approved_drugs(conn: sqlite3.Connection, cfg: Config, run: PipelineRun) -> None:
-    """Fetch approved products from the FDA and map them to ChEMBL structures."""
+    """Fetch approved products from the FDA and map them to ChEMBL structures.
+
+    The ``drugs`` table is rebuilt from the sources on every run rather than
+    patched: an upsert that kept an earlier ``molecule_id`` whenever the new
+    match was empty is how a wrong structure used to survive a corrected
+    matcher. ``first_seen_at`` is carried over for rows that already existed.
+    """
     http = HttpClient(cfg)
     chembl = ChemblClient(cfg, http=HttpClient(cfg))
     ob = OrangeBookClient(cfg, http=http)
@@ -184,54 +196,94 @@ def ingest_approved_drugs(conn: sqlite3.Connection, cfg: Config, run: PipelineRu
             if is_new:
                 run.new += 1
             chembl_molecule_ids[mol["chembl_id"]] = molecule_id
+        # A product's structure is its ChEMBL parent: the curated active moiety.
+        # "CEFAZOLIN SODIUM" and "IMIPRAMINE PAMOATE" are salts whose own records
+        # standardise to a charged anion or to the larger counter-ion (pamoic
+        # acid); their parents are cefazolin and imipramine. Esters such as
+        # hydrocortisone acetate are their own parents and stay distinct.
+        parent_of = {m["chembl_id"]: m.get("parent_chembl_id") or m["chembl_id"] for m in approved_molecules}
+        missing = sorted(set(parent_of.values()) - set(parent_of))
+        for mol in chembl.molecules_by_id(missing) if missing else []:
+            molecule_id, is_new, error = _upsert_molecule(
+                conn, cfg, mol["canonical_smiles"],
+                chembl_id=mol.get("chembl_id"), pref_name=mol.get("pref_name"),
+            )
+            if molecule_id is not None:
+                chembl_molecule_ids[mol["chembl_id"]] = molecule_id
+                run.new += int(is_new)
         conn.commit()
         record_source(conn, "ChEMBL approved molecules (max_phase=4)",
                       cfg.get("ingestion", "chembl", "base_url"), len(chembl_molecule_ids))
 
+        # An inorganic substance (no carbon: potassium chloride, phosphoric acid,
+        # sodium thiosulfate) is not a small organic molecule the models can
+        # screen, so it gets no structure rather than a meaningless one.
+        organic = {
+            r["molecule_id"] for r in conn.execute(
+                "SELECT molecule_id, canonical_smiles FROM molecules WHERE is_valid"
+            ) if _has_carbon(r["canonical_smiles"])
+        }
+
+        def resolve(chembl_id: str) -> str | None:
+            molecule_id = chembl_molecule_ids.get(parent_of.get(chembl_id, chembl_id))
+            return molecule_id if molecule_id in organic else None
+
         products = ob.fetch_products()
+        rows = list(product_rows(products, name_index, resolve))
+
+        first_seen = {
+            r["drug_id"]: r["first_seen_at"]
+            for r in conn.execute("SELECT drug_id, first_seen_at FROM drugs")
+        }
+        predicted = {
+            r[0] for r in conn.execute(
+                """SELECT DISTINCT p.molecule_id FROM predictions p
+                     JOIN model_versions m ON m.model_version = p.model_version
+                    WHERE m.status = 'ACTIVE'"""
+            )
+        }
+        conn.execute("DELETE FROM drugs")
         matched = unmatched = 0
-
-        for product in iter_unique_products(products):
+        methods: dict[str, int] = {}
+        for row in rows:
             run.processed += 1
-            try:
-                hit, method = match_product_to_molecule(product, name_index)
-                molecule_id = chembl_molecule_ids.get(hit["chembl_id"]) if hit else None
-                if molecule_id is None:
-                    unmatched += 1
-                else:
-                    matched += 1
-
-                conn.execute(
-                    """INSERT INTO drugs(drug_id, molecule_id, generic_name, brand_name,
-                           approval_source, approval_status, application_no, application_type,
-                           marketing_status, dosage_form, route, approval_date, chembl_id,
-                           match_method, first_seen_at, processing_status, prediction_status, is_demo)
-                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)
-                       ON CONFLICT(drug_id) DO UPDATE SET
-                           molecule_id = COALESCE(excluded.molecule_id, drugs.molecule_id),
-                           marketing_status = excluded.marketing_status,
-                           match_method = excluded.match_method""",
-                    (
-                        product.drug_id, molecule_id, product.generic_name, product.brand_name,
-                        product.source, "Approved", product.application_no,
-                        product.application_type, product.marketing_status,
-                        product.dosage_form, product.route, product.approval_date,
-                        hit["chembl_id"] if hit else None, method, utcnow(),
-                        "processed" if molecule_id else "unmatched",
-                        "pending" if molecule_id else "unavailable",
-                    ),
-                )
-            except Exception as exc:
-                run.record_error(f"product:{product.drug_id}", exc)
+            product = row.product
+            molecule_id = resolve(row.chembl_id) if row.chembl_id else None
+            if molecule_id is None:
+                unmatched += 1
+            else:
+                matched += 1
+            key = row.match_method.split("_", 3)[-1] if row.match_method.startswith("combination") else row.match_method
+            methods[key] = methods.get(key, 0) + 1
+            conn.execute(
+                """INSERT INTO drugs(drug_id, molecule_id, generic_name, brand_name,
+                       approval_source, approval_status, application_no, application_type,
+                       marketing_status, dosage_form, route, approval_date, chembl_id,
+                       match_method, ingredients, first_seen_at, processing_status,
+                       prediction_status, is_demo)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)""",
+                (
+                    row.drug_id, molecule_id, row.generic_name, product.brand_name,
+                    product.source, "Approved", product.application_no,
+                    product.application_type, product.marketing_status,
+                    product.dosage_form, product.route, product.approval_date,
+                    row.chembl_id if molecule_id else None, row.match_method, row.ingredients,
+                    first_seen.get(row.drug_id, utcnow()),
+                    "processed" if molecule_id else "unmatched",
+                    ("predicted" if molecule_id in predicted else "pending") if molecule_id else "unavailable",
+                ),
+            )
 
         conn.commit()
         record_source(conn, ob.source_used or "FDA approved products", ob.source_url,
                       matched + unmatched, source_version=ob.source_version,
                       notes=f"structure-matched={matched}, unmatched={unmatched}")
-        run.note("approved_products_total", matched + unmatched)
-        run.note("approved_products_matched", matched)
-        run.note("approved_products_unmatched", unmatched)
-        log.info("approved products: %d matched to a structure, %d unmatched", matched, unmatched)
+        run.note("approved_rows_total", matched + unmatched)
+        run.note("approved_rows_matched", matched)
+        run.note("approved_rows_unmatched", unmatched)
+        run.note("match_methods", methods)
+        log.info("approved product rows: %d matched to a structure, %d not reliably matched (%s)",
+                 matched, unmatched, methods)
     finally:
         ob.close()
         chembl.close()

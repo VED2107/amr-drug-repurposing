@@ -4,7 +4,9 @@ import type { ReactNode } from "react";
 import { Pagination } from "@/components/data";
 import { StructureFigure } from "@/components/molecular/StructureFigure";
 import { formatPhase, formatStatus, medicineName, splitConditions } from "@/lib/format";
-import type { CandidatePage, Study, StudyPage } from "@/lib/queries/investigate";
+import type { Study, StudyPage } from "@/lib/queries/investigate";
+import { existingUseText } from "@/lib/existing-use";
+import type { RepurposingPage } from "@/lib/queries/repurposing";
 import {
   ACTIVITY_LABEL,
   assertHonestLabel,
@@ -179,9 +181,9 @@ export function ActivityRow({
 /* ------------------------------------------------------------------ */
 
 /**
- * Other medicines with AI-predicted activity against one pathogen. Each shows
- * its structure and opens the same investigation view as the medicine that was
- * searched.
+ * Repurposing candidates against one pathogen. Each shows what the medicine is
+ * already used for before its prediction, its structure, and whether any
+ * documented evidence exists; each opens the same investigation view.
  */
 export function CandidateList({
   data,
@@ -190,19 +192,25 @@ export function CandidateList({
   params,
   anchor,
   pageParam,
+  empty,
 }: {
-  data: CandidatePage;
+  data: RepurposingPage;
   pathogenLabel: string;
   path: string;
   params: RawSearchParams;
   anchor: string;
   pageParam: string;
+  empty?: ReactNode;
 }) {
   if (data.total === 0) {
     return (
       <p className="m-0 text-[14px] leading-relaxed text-ink-2">
-        No other medicine in this dataset reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted activity
-        against {pathogenLabel}.
+        {empty ?? (
+          <>
+            No repurposing candidate in this dataset reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted
+            activity against {pathogenLabel}.
+          </>
+        )}
       </p>
     );
   }
@@ -210,40 +218,42 @@ export function CandidateList({
   return (
     <div>
       <p className="m-0 mb-4 text-[13px] leading-relaxed text-muted">
-        Listed by AI-predicted activity, high to low. The order is not a ranking of which medicine
+        Sorted by AI-predicted activity, high to low. The order is not a ranking of which medicine
         is better.
       </p>
       <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
-        {data.rows.map((c) => (
-          <li key={c.moleculeId}>
-            <Link
-              href={`/investigate/${encodeURIComponent(c.moleculeId)}`}
-              className="amr-card group grid h-full grid-cols-[minmax(0,1fr)_92px] items-center gap-3 rounded-card border border-rule bg-raised p-3.5 no-underline"
-            >
-              <span className="flex min-w-0 flex-col gap-2">
-                <span className="font-display text-[15px] font-semibold leading-snug text-ink decoration-accent underline-offset-4 group-hover:underline">
-                  {medicineName(c.name)}
-                </span>
-                <span className="text-[12px] leading-snug text-ink-2">
-                  <span className="font-mono text-[17px] font-medium tabular-nums text-computational">
-                    {formatProbability(c.probability, 1)}
-                  </span>{" "}
-                  {ACTIVITY_LABEL}
-                  <span className="block text-muted">against {pathogenLabel}</span>
-                </span>
-                {c.labMeasured ? (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-experimental">
-                    <EvidenceIcon kind="experimental" size={10} />
-                    Lab records exist
+        {data.rows.map((c) => {
+          const use = existingUseText(c.use, 3);
+          return (
+            <li key={c.moleculeId}>
+              <Link
+                href={`/investigate/${encodeURIComponent(c.moleculeId)}?p=${data.pathogenKey}`}
+                className="amr-card group grid h-full grid-cols-[minmax(0,1fr)_84px] gap-3 rounded-card border border-rule bg-raised p-3.5 no-underline"
+              >
+                <span className="flex min-w-0 flex-col gap-2">
+                  <span className="font-display text-[15px] font-semibold leading-snug text-ink decoration-accent underline-offset-4 group-hover:underline">
+                    {medicineName(c.name)}
                   </span>
-                ) : null}
-              </span>
-              <span className="grid h-[76px] place-items-center rounded-card bg-paper p-1">
-                <StructureFigure moleculeId={c.moleculeId} hasStructure={c.hasStructure} label={medicineName(c.name)} compact />
-              </span>
-            </Link>
-          </li>
-        ))}
+                  <span className="text-[12px] leading-snug text-ink-2">
+                    <span className="text-muted">Existing use: </span>
+                    {use ?? <span className="text-muted">not recorded in the sources checked</span>}
+                  </span>
+                  <span className="text-[12px] leading-snug text-ink-2">
+                    <span className="font-mono text-[17px] font-medium tabular-nums text-computational">
+                      {formatProbability(c.probability, 1)}
+                    </span>{" "}
+                    <span>{ACTIVITY_LABEL}</span>
+                    <span className="block text-muted">against {pathogenLabel}</span>
+                  </span>
+                  <EvidenceLine labRecords={c.labRecords} studies={c.studies} />
+                </span>
+                <span className="grid h-[76px] place-items-center self-start rounded-card bg-paper p-1">
+                  <StructureFigure moleculeId={c.moleculeId} hasStructure={c.hasStructure} label={medicineName(c.name)} compact />
+                </span>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
       {data.total > data.pageSize ? (
         <Pagination
@@ -262,6 +272,34 @@ export function CandidateList({
         </p>
       )}
     </div>
+  );
+}
+
+/** Which documented evidence exists for a medicine, in one line. */
+function EvidenceLine({ labRecords, studies }: { labRecords: number; studies: number }) {
+  if (labRecords === 0 && studies === 0) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium" style={{ color: "var(--color-none)" }}>
+        <EvidenceIcon kind="none" size={10} />
+        No documented evidence found
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap gap-x-3 gap-y-1">
+      {labRecords > 0 ? (
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-experimental">
+          <EvidenceIcon kind="experimental" size={10} />
+          Lab records exist
+        </span>
+      ) : null}
+      {studies > 0 ? (
+        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-clinical">
+          <EvidenceIcon kind="clinical" size={10} />
+          {studies.toLocaleString("en-GB")} registered {studies === 1 ? "study" : "studies"}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

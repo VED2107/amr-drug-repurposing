@@ -56,14 +56,20 @@ around one to make a layout or a query simpler.
 
 ## Known gaps — state these, do not paper over them
 
-- ClinicalTrials.gov coverage is complete: all 1,691 of 1,691 approved
+- ClinicalTrials.gov coverage is complete: all 1,761 of 1,761 approved
   medicines have been queried, with 0 failures. 212 of them returned nothing,
   which is "no evidence found" — not "not yet checked", and not "no effect".
   Full registry coverage is *not* completeness of evidence, and a registered
   trial is still not a successful trial nor an approval for a new indication.
 - Resistance-phenotype coverage is 7.2% overall and 0.0% for E. coli, so the
   models predict activity against the *species*, not the resistant phenotype.
-- Docking has been run on a subset of candidates (53 of 1,691 medicines).
+- Docking has been run on a subset of candidates (53 medicines).
+- "Already an antibacterial" comes from WHO ATC codes (via ChEMBL) and FDA
+  pharmacologic classes (openFDA), never from a name. Medicines neither source
+  classifies stay among the repurposing candidates, marked for review. The
+  update worker does not classify new medicines yet; until
+  `python -m src.pipeline.classify` runs, a new medicine reads "not yet
+  checked" and is kept.
 - Graph neural networks, combination therapy, multi-disease models and the
   IP angle are future work in the presentation, not features of this build.
 

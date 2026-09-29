@@ -19,15 +19,18 @@ from dataclasses import dataclass, field
 from ..config import Config
 from ..ingestion.chembl import ChemblClient
 from ..ingestion.http import HttpClient
-from ..ingestion.orange_book import (
-    OrangeBookClient,
-    build_name_index,
-    iter_unique_products,
-    match_product_to_molecule,
-)
+from ..chemistry.standardize import standardize_smiles
+from ..ingestion.orange_book import OrangeBookClient, build_name_index, product_rows
 from ..logging_utils import get_logger
 
 log = get_logger("amr.updater.sources")
+
+
+def _has_carbon(smiles: str | None) -> bool:
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles(smiles or "")
+    return mol is not None and any(a.GetAtomicNum() == 6 for a in mol.GetAtoms())
 
 
 @dataclass
@@ -54,8 +57,11 @@ class SourceProduct:
     dosage_form: str | None
     route: str | None
     approval_date: str | None
+    #: The ChEMBL parent whose structure this product is screened as.
     chembl_id: str | None
     match_method: str | None
+    #: The product's full ingredient field (a combination is one row per component).
+    ingredients: str | None = None
 
 
 @dataclass
@@ -111,14 +117,38 @@ def fetch_snapshot(cfg: Config, *, molecule_limit: int | None = None) -> SourceS
         name_index = build_name_index(approved)
         products = orange_book.fetch_products()
 
-        for product in iter_unique_products(products):
-            hit, method = match_product_to_molecule(product, name_index)
-            if hit is None:
+        # The same matching as the pipeline's ingest stage: a product's structure
+        # is its ChEMBL parent (the curated active moiety), a name that points at
+        # disagreeing structures is not guessed, inorganic substances get none,
+        # and a combination product yields one row per active ingredient.
+        by_id = {m["chembl_id"]: m for m in approved}
+        parent_of = {m["chembl_id"]: m.get("parent_chembl_id") or m["chembl_id"] for m in approved}
+        std_cfg = cfg.get("chemistry", "standardization", default={}) or {}
+        cache: dict[str, str | None] = {}
+
+        def resolve(chembl_id: str) -> str | None:
+            parent = parent_of.get(chembl_id, chembl_id)
+            if parent not in cache:
+                mol = by_id.get(parent)
+                record = standardize_smiles(
+                    mol["canonical_smiles"],
+                    strip_salts=bool(std_cfg.get("strip_salts", True)),
+                    min_heavy_atoms=int(std_cfg.get("min_heavy_atoms", 5)),
+                    max_heavy_atoms=int(std_cfg.get("max_heavy_atoms", 150)),
+                ) if mol and mol.get("canonical_smiles") else None
+                ok = record is not None and record.is_valid and _has_carbon(record.canonical_smiles)
+                cache[parent] = record.molecule_id if ok else None
+            return cache[parent]
+
+        for row in product_rows(products, name_index, resolve):
+            product = row.product
+            parent = parent_of.get(row.chembl_id, row.chembl_id) if row.chembl_id else None
+            if parent is None:
                 snapshot.products_unmatched += 1
             snapshot.products.append(
                 SourceProduct(
-                    drug_id=product.drug_id,
-                    generic_name=product.generic_name,
+                    drug_id=row.drug_id,
+                    generic_name=row.generic_name,
                     brand_name=product.brand_name,
                     approval_source=product.source,
                     application_no=product.application_no,
@@ -127,8 +157,9 @@ def fetch_snapshot(cfg: Config, *, molecule_limit: int | None = None) -> SourceS
                     dosage_form=product.dosage_form,
                     route=product.route,
                     approval_date=product.approval_date,
-                    chembl_id=hit["chembl_id"] if hit else None,
-                    match_method=method,
+                    chembl_id=parent,
+                    match_method=row.match_method,
+                    ingredients=row.ingredients,
                 )
             )
 

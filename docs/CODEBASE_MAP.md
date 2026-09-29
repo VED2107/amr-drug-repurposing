@@ -62,6 +62,7 @@ wrote; it never computes.
 | `http.py` | 107 | Retrying HTTP with backoff, user-agent handling, response validation. |
 | `chembl.py` | 151 | ChEMBL bioactivity and molecule records for the four target organisms. |
 | `orange_book.py` | 291 | FDA Orange Book download and parse. Needs a browser user-agent; the CDN 404s otherwise, so the zip magic bytes are checked. |
+| `classification.py` | ~360 | Existing use and anti-infective status: WHO ATC codes and approved indications from ChEMBL, FDA pharmacologic classes from openFDA labels. `classify()` is the documented rule (`RULE_TEXT`) that decides "already an antibacterial". |
 
 ### Chemistry — `src/chemistry/`
 
@@ -113,6 +114,7 @@ One module per stage; each is runnable as `python -m src.pipeline.<name>`.
 | `predict.py` | 102 | **Predict (2)** — score the approved library. |
 | `dock.py` | 328 | **Validate** — prepare receptors, dock candidates, store poses. |
 | `clinical.py` | 165 | **Deliver** — trial history for scored medicines. |
+| `classify.py` | ~190 | Existing use + anti-infective classification for every approved medicine. Filters nothing; the website reads the status. |
 | `run.py` | 109 | Runs every stage in order. |
 | `runlog.py` | 121 | Run records, error capture, and `mark_stale_runs()` for interrupted jobs. |
 
@@ -222,7 +224,16 @@ Streamlit. Opening it performs no computation beyond reading stored results.
 `molecules`, `drugs`, `bioactivity`, `pathogens`, `targets`, `dataset_versions`,
 `dataset_members`, `model_versions`, `model_benchmarks`, `predictions`,
 `docking_runs`, `docking_results`, `clinical_queries`, `clinical_trials`,
+`medicine_classes`, `medicine_indications`, `medicine_use_status`,
 `pipeline_runs`, `pipeline_errors`, `data_sources`, `settings`, `schema_info`.
+
+`medicine_use_status` holds one anti-infective status per medicine
+(`antibacterial`, `other_anti_infective`, `not_anti_infective`,
+`unclassified`) with the codes that decided it. The website's repurposing
+candidates leave out `antibacterial` only; `unclassified` is kept and marked.
+The definition lives once, in `web/src/lib/queries/repurposing.ts`
+(`candidateFilter`), and serves the dashboard, the pathogen lists, the
+condition view and both CSV exports.
 
 `clinical_queries` is the one that is easy to overlook and matters most: it
 records that a medicine *was searched*, which is what lets the interface say

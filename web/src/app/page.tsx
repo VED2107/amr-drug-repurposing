@@ -4,7 +4,7 @@ import { EvidenceIcon } from "@/components/investigate";
 import { Page } from "@/components/primitives";
 import { InvestigateSearch } from "@/components/search/InvestigateSearch";
 import { PATHOGEN_PLAIN, REPURPOSING_EXAMPLES } from "@/lib/content";
-import { conditionForPathogen, getDashboardSummary } from "@/lib/queries/investigate";
+import { getRepurposingSummary } from "@/lib/queries/repurposing";
 import { DISCOVERY_THRESHOLD_TEXT, DOCKING_SCREENING_TARGET_KCAL_MOL } from "@/lib/science";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * and how to read what the dashboard shows. Every count is read live.
  */
 export default async function Overview() {
-  const summary = await getDashboardSummary();
+  const summary = await getRepurposingSummary();
   const n = (v: number) => v.toLocaleString("en-GB");
 
   return (
@@ -44,8 +44,8 @@ export default async function Overview() {
         <dl className="m-0 grid gap-px overflow-hidden rounded-card border border-rule bg-rule sm:grid-cols-3 lg:grid-cols-1">
           <Stat value={n(summary.medicines)} label="approved medicines checked" />
           <Stat
-            value={n(summary.withActivity)}
-            label={`with AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT} against at least one bacterium`}
+            value={n(summary.candidates)}
+            label={`repurposing candidates: not already antibacterials, with AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT} against at least one bacterium`}
             accent
           />
           <Stat value={n(summary.registeredStudies)} label="registered clinical studies linked to them" />
@@ -90,8 +90,9 @@ export default async function Overview() {
             are shown separately from the prediction, with links to the original records.
           </Step>
           <Step n={4} title="Look at what is new">
-            Medicines with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT} that have no documented
-            evidence for the condition are listed as{" "}
+            Medicines that are already antibacterials are set aside. The rest with AI-predicted
+            activity {DISCOVERY_THRESHOLD_TEXT} are repurposing candidates, each shown with what it is
+            already used for; those with no documented evidence for the condition are listed as{" "}
             <em>other medicines to investigate</em>.
           </Step>
         </ol>
@@ -106,7 +107,7 @@ export default async function Overview() {
           {summary.pathogens.map((p) => (
             <li key={p.key}>
               <Link
-                href={`/investigate?condition=${encodeURIComponent(conditionForPathogen(p.key))}`}
+                href={`/investigate?pathogen=${p.key}`}
                 className="amr-card group flex h-full flex-col gap-3 rounded-card border border-rule bg-raised p-5 no-underline"
               >
                 <span className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -120,9 +121,9 @@ export default async function Overview() {
                 <span className="mt-auto flex flex-wrap items-baseline justify-between gap-3 border-t border-rule-soft pt-3">
                   <span className="text-[13px] text-ink-2">
                     <span className="font-mono text-[18px] font-medium tabular-nums text-computational">
-                      {n(p.medicines)}
+                      {n(p.candidates)}
                     </span>{" "}
-                    medicines with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT}
+                    repurposing candidates with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT}
                   </span>
                   <span className="text-[13px] font-medium text-ink decoration-accent underline-offset-4 group-hover:underline">
                     Investigate →

@@ -9,17 +9,15 @@ import "server-only";
  *   one structure (one `molecule_id`) is chosen per medicine before anything is
  *   counted or listed. Predictions are read only from ACTIVE models, which hold
  *   exactly one prediction per medicine and pathogen.
- * - A medicine counts as having AI-predicted activity against a pathogen when
- *   the ACTIVE model's probability is at or above `DISCOVERY_THRESHOLD`.
- *   Overall counts are distinct medicines, never prediction rows, so a medicine
- *   that qualifies for three pathogens counts once.
+ * - Repurposing candidates — counts, lists and exports — are defined once, in
+ *   `repurposing.ts`. Nothing here counts them.
  *
  * The SQL is the subset SQLite and Postgres both accept; see `db/client.ts`.
  */
 
 import { query, queryOne, toNum } from "@/lib/db/client";
-import { DISCOVERY_THRESHOLD, pathogenConditionTerms } from "@/lib/science";
-import { PATHOGEN_KEYS, type PathogenKey } from "@/lib/types";
+import { pathogenConditionTerms } from "@/lib/science";
+import type { PathogenKey } from "@/lib/types";
 
 /**
  * One product row per medicine: the structure is the medicine's identity.
@@ -29,84 +27,17 @@ import { PATHOGEN_KEYS, type PathogenKey } from "@/lib/types";
  * in one list and "Ciprofloxacin" on its own page. `getMedicineByMoleculeId`
  * uses the same order.
  */
-const ONE_PER_MEDICINE = `(
+export const ONE_PER_MEDICINE = `(
   select molecule_id, drug_id from (
     select molecule_id, drug_id,
            row_number() over (
-             partition by molecule_id order by length(generic_name), generic_name, drug_id
+             partition by molecule_id
+             order by case when coalesce(match_method, '') like 'combination%' then 1 else 0 end,
+                      length(generic_name), generic_name, drug_id
            ) as pick
       from drugs where molecule_id is not null
   ) ranked where pick = 1
 )`;
-
-const LIBRARY = `(select distinct molecule_id from drugs where molecule_id is not null)`;
-
-/* ------------------------------------------------------------------ */
-/* Dashboard                                                           */
-/* ------------------------------------------------------------------ */
-
-export interface PathogenCount {
-  key: PathogenKey;
-  label: string;
-  fullName: string;
-  /** Distinct medicines at or above the discovery floor for this pathogen. */
-  medicines: number;
-}
-
-export interface DashboardSummary {
-  medicines: number;
-  /** Distinct medicines at or above the floor for at least one pathogen. */
-  withActivity: number;
-  /** Distinct ClinicalTrials.gov registrations (NCT ids). */
-  registeredStudies: number;
-  pathogens: PathogenCount[];
-}
-
-export async function getDashboardSummary(): Promise<DashboardSummary> {
-  const totals = await queryOne<Record<string, unknown>>(
-    `select
-       (select count(*) from ${LIBRARY} lib)                        as medicines,
-       (select count(distinct p.molecule_id)
-          from predictions p
-          join model_versions m
-            on m.model_version = p.model_version and m.status = 'ACTIVE'
-         where p.probability >= ?
-           and p.molecule_id in ${LIBRARY})                         as with_activity,
-       (select count(distinct nct_id) from clinical_trials)         as studies`,
-    [DISCOVERY_THRESHOLD],
-  );
-  if (!totals) throw new Error("dashboard summary returned no row");
-
-  const rows = await query<Record<string, unknown>>(
-    `select pg.key, pg.label, pg.full_name,
-            (select count(distinct p.molecule_id)
-               from predictions p
-               join model_versions m
-                 on m.model_version = p.model_version and m.status = 'ACTIVE'
-              where p.pathogen_key = pg.key
-                and p.probability >= ?
-                and p.molecule_id in ${LIBRARY})                    as medicines
-       from pathogens pg`,
-    [DISCOVERY_THRESHOLD],
-  );
-
-  const pathogens = rows
-    .map((r) => ({
-      key: String(r.key) as PathogenKey,
-      label: String(r.label),
-      fullName: String(r.full_name),
-      medicines: toNum(r.medicines) ?? 0,
-    }))
-    .filter((p) => PATHOGEN_KEYS.includes(p.key))
-    .sort((a, b) => PATHOGEN_KEYS.indexOf(a.key) - PATHOGEN_KEYS.indexOf(b.key));
-
-  return {
-    medicines: toNum(totals.medicines) ?? 0,
-    withActivity: toNum(totals.with_activity) ?? 0,
-    registeredStudies: toNum(totals.studies) ?? 0,
-    pathogens,
-  };
-}
 
 /* ------------------------------------------------------------------ */
 /* Medicine lookup                                                     */
@@ -305,98 +236,6 @@ export async function getStereoisomerInTraining(moleculeId: string): Promise<Pat
     [`${skeleton}-%`, moleculeId],
   );
   return rows.map((r) => String(r.pathogen_key) as PathogenKey);
-}
-
-/* ------------------------------------------------------------------ */
-/* Computational candidates                                            */
-/* ------------------------------------------------------------------ */
-
-export interface Candidate {
-  moleculeId: string;
-  name: string;
-  probability: number;
-  /** Laboratory records exist for this medicine against this pathogen. */
-  labMeasured: boolean;
-  /** The database holds a valid structure, so a drawing exists. */
-  hasStructure: boolean;
-}
-
-export interface CandidatePage {
-  pathogenKey: PathogenKey;
-  rows: Candidate[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-/**
- * Medicines with AI-predicted activity against one pathogen.
- *
- * Ordered by the predicted value, high to low, and the page says so. That is an
- * ordering to read in, not a ranking of which medicine is better.
- *
- * `exclude` removes one medicine (the one being investigated); `excludeWhere`
- * is a SQL fragment over `d.molecule_id` that removes a whole set (the
- * medicines already documented for a condition).
- */
-export async function getCandidates(options: {
-  pathogenKey: PathogenKey;
-  exclude?: string;
-  excludeWhere?: { sql: string; params: (string | number)[] };
-  page?: number;
-  pageSize?: number;
-}): Promise<CandidatePage> {
-  const page = Math.max(1, options.page ?? 1);
-  const pageSize = options.pageSize ?? 12;
-
-  const where: string[] = ["p.probability >= ?"];
-  const params: (string | number)[] = [DISCOVERY_THRESHOLD];
-  if (options.exclude) {
-    where.push("d.molecule_id <> ?");
-    params.push(options.exclude);
-  }
-  if (options.excludeWhere) {
-    where.push(`d.molecule_id not in (${options.excludeWhere.sql})`);
-    params.push(...options.excludeWhere.params);
-  }
-
-  const from = `
-    from ${ONE_PER_MEDICINE} one
-    join drugs d on d.drug_id = one.drug_id
-    join predictions p on p.molecule_id = d.molecule_id and p.pathogen_key = ?
-    join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'
-    left join (
-      select molecule_id, count(*) as n from bioactivity
-       where label is not null and pathogen_key = ?
-       group by molecule_id
-    ) ba on ba.molecule_id = d.molecule_id
-    where ${where.join(" and ")}`;
-  const base = [options.pathogenKey, options.pathogenKey, ...params];
-
-  const count = await queryOne<Record<string, unknown>>(`select count(*) as n ${from}`, base);
-  const rows = await query<Record<string, unknown>>(
-    `select d.molecule_id, d.generic_name, p.probability, coalesce(ba.n, 0) as measured,
-            case when exists (select 1 from molecules mo
-              where mo.molecule_id = d.molecule_id and mo.is_valid) then 1 else 0 end as has_structure
-       ${from}
-      order by p.probability desc, d.generic_name asc
-      limit ? offset ?`,
-    [...base, pageSize, (page - 1) * pageSize],
-  );
-
-  return {
-    pathogenKey: options.pathogenKey,
-    total: toNum(count?.n) ?? 0,
-    page,
-    pageSize,
-    rows: rows.map((r) => ({
-      moleculeId: String(r.molecule_id),
-      name: String(r.generic_name),
-      probability: toNum(r.probability) as number,
-      labMeasured: (toNum(r.measured) ?? 0) > 0,
-      hasStructure: Number(r.has_structure) === 1,
-    })),
-  };
 }
 
 /* ------------------------------------------------------------------ */

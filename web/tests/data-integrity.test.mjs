@@ -141,7 +141,8 @@ describe("registry invariants", () => {
   it("keeps 'no evidence found' distinguishable from 'not yet checked'", async () => {
     const [row] = await sql`
       select
-        (select count(*) from clinical_queries)                     as queried,
+        (select count(*) from clinical_queries
+          where molecule_id in (select molecule_id from drugs))     as queried,
         (select count(*) from clinical_queries where n_results = 0) as none_found,
         (select count(distinct molecule_id) from drugs
           where molecule_id is not null)                            as medicines`;
@@ -154,6 +155,7 @@ describe("registry invariants", () => {
       Number(row.queried) <= Number(row.medicines),
       "more queries than medicines would mean duplicate query rows",
     );
+    assert.equal(Number(row.queried), Number(row.medicines), "every library medicine has been searched");
   });
 
   it("records every write to the published tables as a data change", async () => {
@@ -202,6 +204,64 @@ function discoveryThreshold() {
 
 const ACTIVE = "join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'";
 
+/*
+  The repurposing-candidate definition, written out again here from the brief
+  rather than imported from the site: one medicine per structure, AI-predicted
+  activity at or above the floor (for one pathogen, or any), and not already an
+  antibacterial by the stored classification. If the site's query drifts from
+  this, the counts stop matching.
+*/
+function candidateSql(pathogen) {
+  return `select distinct d.molecule_id from drugs d
+     where d.molecule_id is not null
+       and d.molecule_id in (select molecule_id from molecules where is_valid)
+       and d.molecule_id in (select p.molecule_id from predictions p ${ACTIVE}
+                              where p.probability >= $1${pathogen ? ` and p.pathogen_key = '${pathogen}'` : ""})
+       and d.molecule_id in (select molecule_id from medicine_use_status where is_antibacterial = 'false')`;
+}
+
+async function candidateIds(pathogen) {
+  const rows = await sql.unsafe(candidateSql(pathogen), [discoveryThreshold()]);
+  return new Set(rows.map((r) => r.molecule_id));
+}
+
+const PATHOGENS = ["mrsa", "ecoli", "kpneumoniae", "mtb"];
+
+/** Text as a reader sees it: React's `<!-- -->` separators removed. */
+const readable = (page) => page.replace(/<!-- -->/g, "");
+
+/** Minimal RFC 4180 parser: quoted fields, doubled quotes, CRLF rows. */
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  const body = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (quoted) {
+      if (ch === '"' && body[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else field += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n") { row.push(field.replace(/\r$/, "")); rows.push(row); row = []; field = ""; }
+    else field += ch;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+async function csv(route) {
+  const res = await fetch(`${BASE_URL}${route}`, { signal: AbortSignal.timeout(PAGE_DEADLINE_MS) });
+  assert.equal(res.status, 200, `${route} should download`);
+  assert.match(res.headers.get("content-type") ?? "", /text\/csv/);
+  assert.match(res.headers.get("content-disposition") ?? "", /attachment/);
+  const text = await res.text();
+  const [header, ...rows] = parseCsv(text);
+  return { text, header, rows };
+}
+
 /** A rendered model percentage: the value followed by its label. */
 const PERCENT_WITH_LABEL = /%<\/span>\s*(?:<!-- -->)?\s*<span[^>]*>AI-predicted activity/;
 
@@ -214,7 +274,7 @@ function shown(probability) {
 }
 
 describe("the dashboard counts medicines, not prediction rows", () => {
-  it("shows the live totals, with the activity count as distinct medicines", async () => {
+  it("shows the library, the repurposing candidates and the reconciliation between them", async () => {
     const floor = discoveryThreshold();
     const [row] = await sql.unsafe(
       `select
@@ -222,36 +282,39 @@ describe("the dashboard counts medicines, not prediction rows", () => {
          (select count(distinct p.molecule_id) from predictions p ${ACTIVE}
            where p.probability >= $1
              and p.molecule_id in (select molecule_id from drugs))                     as with_activity,
-         (select count(distinct nct_id) from clinical_trials)                          as studies`,
+         (select count(*) from (${candidateSql()}) c)                                  as candidates`,
       [floor],
     );
+    const [ab] = await sql.unsafe(
+      `select count(distinct p.molecule_id) as n from predictions p ${ACTIVE}
+        where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)
+          and p.molecule_id in (select molecule_id from medicine_use_status where is_antibacterial = 'true')`,
+      [floor],
+    );
+    const removed = Number(ab.n);
+    assert.ok(removed > 0, "some existing antibacterials reach the floor and are set aside");
+    assert.ok(Number(row.candidates) < Number(row.with_activity));
 
-    const page = await html("/dashboard");
+    const page = readable(await html("/dashboard"));
     await assertCurrent("/dashboard", page);
     for (const [label, value] of Object.entries(row)) {
       assert.ok(page.includes(grouped(value)), `dashboard should show ${label} = ${grouped(value)}`);
     }
+    assert.ok(page.includes(`− ${grouped(removed)}`), "the antibacterials set aside are shown");
+    assert.ok(/Repurposing candidates/.test(page) && /Approved medicines/.test(page));
+    assert.ok(/matched to the FDA Orange Book/.test(page), "the library is described as Orange Book matches");
     assert.ok(page.includes(`≥${Math.round(floor * 100)}%`), "the floor is stated beside the count");
   });
 
   it("counts each pathogen independently, and never sums them into the total", async () => {
     const floor = discoveryThreshold();
-    const perPathogen = await sql.unsafe(
-      `select p.pathogen_key, count(distinct p.molecule_id) as n
-         from predictions p ${ACTIVE}
-        where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)
-        group by p.pathogen_key order by p.pathogen_key`,
-      [floor],
-    );
-    assert.equal(perPathogen.length, 4, "all four pathogens must have qualifying medicines");
+    const perPathogen = [];
+    for (const key of PATHOGENS) {
+      perPathogen.push({ pathogen_key: key, n: (await candidateIds(key)).size });
+    }
+    assert.ok(perPathogen.every((r) => r.n > 0), "all four pathogens must have candidates");
 
-    const [overall] = await sql.unsafe(
-      `select count(*) as n from (
-         select p.molecule_id from predictions p ${ACTIVE}
-          where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)
-          group by p.molecule_id) t`,
-      [floor],
-    );
+    const overall = { n: (await candidateIds()).size };
     const sum = perPathogen.reduce((a, r) => a + Number(r.n), 0);
     assert.ok(Number(overall.n) <= sum, "a union can never exceed the sum of its parts");
     assert.ok(
@@ -270,6 +333,7 @@ describe("the dashboard counts medicines, not prediction rows", () => {
 
     const page = await html("/dashboard");
     for (const r of perPathogen) {
+      assert.ok(page.includes(`href="/investigate?pathogen=${r.pathogen_key}"`), "each card opens its full list");
       assert.ok(page.includes(grouped(r.n)), `dashboard should show ${r.pathogen_key} = ${grouped(r.n)}`);
     }
     if (sum !== Number(overall.n)) {
@@ -321,12 +385,10 @@ describe("a medicine opens with its own four predictions", () => {
     const floor = discoveryThreshold();
     const [self] = await sql`
       select molecule_id from drugs where lower(generic_name) = 'levoketoconazole' limit 1`;
-    const [expected] = await sql.unsafe(
-      `select count(*) as n from predictions p ${ACTIVE}
-        where p.pathogen_key = 'mtb' and p.probability >= $1 and p.molecule_id <> $2
-          and p.molecule_id in (select molecule_id from drugs)`,
-      [floor, self.molecule_id],
-    );
+    const pool = await candidateIds("mtb");
+    pool.delete(self.molecule_id);
+    const expected = { n: pool.size };
+    void floor;
 
     const route = `/investigate/${self.molecule_id}?p=mtb`;
     const page = await html(route);
@@ -334,7 +396,7 @@ describe("a medicine opens with its own four predictions", () => {
     const text = page.replace(/<!-- -->/g, "");
     assert.ok(text.includes(`of ${grouped(expected.n)} medicines`), "candidate total matches the database");
 
-    const links = [...page.matchAll(/href="\/investigate\/([A-Z0-9-]+)"/g)]
+    const links = [...page.matchAll(/href="\/investigate\/([A-Z0-9-]+)(?:\?p=[a-z]+)?"/g)]
       .map((m) => m[1])
       .filter((id) => id !== self.molecule_id);
     assert.ok(links.length > 0, "other medicines are listed as links");
@@ -390,12 +452,21 @@ describe("the percentage gate holds for conditions", () => {
                  or (' ' || replace(lower(ct.conditions), ';', ' ') || ' ') like '%latent tb%')
             union select b.molecule_id from bioactivity b
              where b.pathogen_key = 'mtb' and b.label is not null)
+          and p.molecule_id in (select molecule_id from medicine_use_status where is_antibacterial = 'false')
+          and p.molecule_id in (select molecule_id from molecules where is_valid)
         order by p.probability desc limit 1`,
       [floor],
     );
     assert.ok(first, "tuberculosis has computational candidates");
     const candidates = page.slice(page.indexOf("Other medicines to investigate"));
     assert.ok(candidates.includes(first.molecule_id), "the first candidate matches the database");
+    assert.ok(/Existing use: /.test(candidates), "each candidate shows its existing use");
+    assert.ok(/not already antibacterial medicines/.test(candidates), "the exclusion is stated");
+
+    const antibacterials = await sql`select molecule_id from medicine_use_status where status = 'antibacterial'`;
+    for (const r of antibacterials) {
+      assert.ok(!candidates.includes(`/investigate/${r.molecule_id}?`), `${r.molecule_id} is an antibacterial, not a candidate`);
+    }
   });
 });
 
@@ -431,13 +502,12 @@ describe("the overview explains, and discovery waits for a search", () => {
     const [row] = await sql.unsafe(
       `select
          (select count(distinct molecule_id) from drugs where molecule_id is not null) as medicines,
-         (select count(distinct p.molecule_id) from predictions p ${ACTIVE}
-           where p.probability >= $1 and p.molecule_id in (select molecule_id from drugs)) as with_activity`,
+         (select count(*) from (${candidateSql()}) c)                                  as candidates`,
       [floor],
     );
     const page = await html("/");
     await assertCurrent("/", page);
-    assert.ok(page.includes(grouped(row.medicines)) && page.includes(grouped(row.with_activity)));
+    assert.ok(page.includes(grouped(row.medicines)) && page.includes(grouped(row.candidates)));
     assert.ok(/What is drug repurposing\?/.test(page) && /How to read a result/.test(page));
   });
 
@@ -491,6 +561,236 @@ describe("documented evidence links to its source", () => {
   });
 });
 
+describe("each pathogen opens its complete list of repurposing candidates", () => {
+  for (const key of PATHOGENS) {
+    it(`${key}: the list total matches the dashboard and the database, and every page is reachable`, async () => {
+      const ids = await candidateIds(key);
+      const page = readable(await html(`/investigate?pathogen=${key}`));
+      await assertCurrent(`/investigate?pathogen=${key}`, page);
+      assert.ok(page.includes(`All ${grouped(ids.size)} repurposing candidates`), `shows all ${ids.size}`);
+      assert.ok(/Sorted by AI-predicted activity/.test(page), "the order is labelled");
+      assert.ok(PERCENT_WITH_LABEL.test(page), "every percentage carries its label");
+      assert.ok(/Existing use: /.test(page), "each row shows its existing use");
+
+      const dashboard = readable(await html("/dashboard"));
+      assert.ok(dashboard.includes(`See all ${grouped(ids.size)} candidates`), "the card shows the same number");
+
+      // The last page holds exactly the remainder: nothing is cut off.
+      const pageSize = 24;
+      const last = Math.max(1, Math.ceil(ids.size / pageSize));
+      const tail = await html(`/investigate?pathogen=${key}&page=${last}`);
+      const onLast = new Set([...tail.matchAll(/href="\/investigate\/([A-Z0-9-]+)\?p=/g)].map((m) => m[1]));
+      assert.equal(onLast.size, ids.size - (last - 1) * pageSize, "the final page holds the remainder");
+      for (const id of onLast) assert.ok(ids.has(id), `${id} on the last page is a candidate`);
+    });
+  }
+
+  it("K. pneumoniae: walking every page yields exactly the candidate set, once each", async () => {
+    const ids = await candidateIds("kpneumoniae");
+    const seen = [];
+    for (let n = 1; n <= Math.ceil(ids.size / 24); n++) {
+      const page = await html(`/investigate?pathogen=kpneumoniae&page=${n}`);
+      seen.push(...new Set([...page.matchAll(/href="\/investigate\/([A-Z0-9-]+)\?p=/g)].map((m) => m[1])));
+    }
+    assert.equal(seen.length, new Set(seen).size, "no medicine appears twice");
+    assert.deepEqual(new Set(seen), ids, "the pages together are the candidate set");
+  });
+
+  it("filters narrow the list and say by how much", async () => {
+    const page = readable(await html("/investigate?pathogen=mtb&range=80-100"));
+    const floor = discoveryThreshold();
+    const [row] = await sql.unsafe(
+      `select count(*) as n from (${candidateSql("mtb")}) c
+        where c.molecule_id in (select p.molecule_id from predictions p ${ACTIVE}
+                                 where p.pathogen_key = 'mtb' and p.probability >= 0.8 and p.probability <= 1)`,
+      [floor],
+    );
+    assert.ok(page.includes(`${grouped(row.n)} of`), `shows ${row.n} matching`);
+  });
+
+  it("an unknown pathogen is not a list", async () => {
+    const res = await fetch(`${BASE_URL}/investigate?pathogen=listeria`, { redirect: "manual" });
+    assert.ok([307, 308].includes(res.status), "falls through to the redirect");
+  });
+});
+
+describe("the molecular dataset and the medicine library stay distinct", () => {
+  it("the dashboard counts the approved library, not every molecule", async () => {
+    const [row] = await sql`
+      select (select count(*) from molecules where is_valid)                                    as molecules,
+             (select count(distinct molecule_id) from drugs where molecule_id is not null)       as library`;
+    assert.ok(Number(row.molecules) > 20000, "the broad molecular dataset is kept");
+    assert.ok(Number(row.library) < Number(row.molecules));
+    const page = readable(await html("/dashboard"));
+    assert.ok(page.includes(grouped(row.library)), "the library is shown");
+    assert.ok(!page.includes(grouped(row.molecules)), "the molecular dataset is not presented as the library");
+  });
+
+  it("every library medicine has exactly four current predictions and a valid structure", async () => {
+    const [row] = await sql`
+      select count(*) as n from (
+        select d.molecule_id from (select distinct molecule_id from drugs where molecule_id is not null) d
+        left join predictions p on p.molecule_id = d.molecule_id
+        left join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'
+        group by d.molecule_id
+        having sum(case when m.model_version is not null then 1 else 0 end) <> 4) t`;
+    assert.equal(Number(row.n), 0);
+    const [bad] = await sql`
+      select count(*) as n from molecules
+       where molecule_id in (select molecule_id from drugs) and not is_valid`;
+    assert.equal(Number(bad.n), 0);
+  });
+
+  it("the audit's wrong structure matches are corrected", async () => {
+    const rows = await sql`
+      select d.generic_name, m.pref_name from drugs d join molecules m on m.molecule_id = d.molecule_id
+       where d.generic_name in ('HYDROCORTISONE', 'TESTOSTERONE', 'HYDROCORTISONE ACETATE', 'IMIPRAMINE PAMOATE')
+       group by d.generic_name, m.pref_name`;
+    const map = Object.fromEntries(rows.map((r) => [r.generic_name, r.pref_name]));
+    assert.equal(map.HYDROCORTISONE, "HYDROCORTISONE");
+    assert.equal(map.TESTOSTERONE, "TESTOSTERONE");
+    assert.equal(map["HYDROCORTISONE ACETATE"], "HYDROCORTISONE ACETATE");
+    assert.equal(map["IMIPRAMINE PAMOATE"], "IMIPRAMINE");
+    const [nacl] = await sql`
+      select count(*) as n from drugs where generic_name = 'SODIUM CHLORIDE' and molecule_id is not null`;
+    assert.equal(Number(nacl.n), 0, "an inorganic salt borrows no structure");
+  });
+});
+
+describe("the antimicrobial exclusion comes from classification data", () => {
+  it("every medicine has been classified, and each status carries its basis", async () => {
+    const [row] = await sql`
+      select
+        (select count(distinct molecule_id) from drugs where molecule_id is not null) as medicines,
+        (select count(*) from medicine_use_status)                                    as classified,
+        (select count(*) from medicine_use_status
+          where status in ('antibacterial', 'other_anti_infective', 'not_anti_infective')
+            and (basis is null or basis = ''))                                        as without_basis,
+        (select count(*) from medicine_use_status
+          where status = 'antibacterial'
+            and basis not like '%WHO ATC J0%' and basis not like '%WHO ATC D06%'
+            and basis not like '%WHO ATC S01A%' and basis not like '%WHO ATC A07AA%'
+            and basis not like '%WHO ATC G01AA%' and basis not like '%WHO ATC R02AB%'
+            and basis not like '%WHO ATC D10AF%' and basis not like '%FDA class%')    as off_rule`;
+    assert.equal(Number(row.classified), Number(row.medicines), "one status per medicine");
+    const [flag] = await sql`
+      select count(*) as n from medicine_use_status
+       where (status = 'antibacterial') <> (is_antibacterial = 'true')
+          or (status = 'unclassified') <> (is_antibacterial = 'unclassified')`;
+    assert.equal(Number(flag.n), 0, "is_antibacterial agrees with the status; unclassified is never false");
+    assert.equal(Number(row.without_basis), 0, "a classification names the codes that decided it");
+    assert.equal(Number(row.off_rule), 0, "every antibacterial is decided by an ATC group or FDA class in the rule");
+  });
+
+  it("known repurposing examples stay candidates; known antibiotics do not", async () => {
+    const status = async (name) => {
+      const [r] = await sql`
+        select us.status from medicine_use_status us join drugs d on d.molecule_id = us.molecule_id
+         where lower(d.generic_name) = ${name} limit 1`;
+      return r?.status;
+    };
+    for (const name of ["ciprofloxacin", "doxycycline", "levofloxacin", "vancomycin", "rifampin", "isoniazid"]) {
+      assert.equal(await status(name), "antibacterial", `${name} is an existing antibacterial`);
+    }
+    for (const name of ["sertraline", "tamoxifen citrate", "metformin hydrochloride", "levoketoconazole"]) {
+      const s = await status(name);
+      if (s !== undefined) assert.notEqual(s, "antibacterial", `${name} is not an antibacterial`);
+    }
+    assert.equal(await status("amphotericin b"), "other_anti_infective", "a polyene antifungal is not an antibacterial");
+  });
+});
+
+describe("the medicine view shows its existing use first", () => {
+  it("existing use, then why it is here, then its AI-predicted activity, then evidence", async () => {
+    const [row] = await sql.unsafe(
+      `select c.molecule_id from (${candidateSql("mtb")}) c
+         join medicine_indications mi on mi.molecule_id = c.molecule_id limit 1`,
+      [discoveryThreshold()],
+    );
+    const page = readable(await html(`/investigate/${row.molecule_id}?p=mtb`));
+    const order = [
+      "Existing / approved use",
+      "Repurposing investigation",
+      "being investigated here for AI-predicted antibacterial activity against",
+      'id="activity"',
+      'id="evidence"',
+      'id="studies"',
+    ].map((marker) => page.indexOf(marker));
+    assert.ok(order.every((i) => i > 0), `all sections present: ${order}`);
+    assert.deepEqual([...order].sort((a, b) => a - b), order, "sections appear in the required order");
+    assert.ok(/Approved for/.test(page), "the approved indications are listed");
+    assert.ok(/M\. tuberculosis/.test(page.slice(order[2], order[3])), "names the pathogen it was surfaced for");
+  });
+
+  it("an existing antibacterial says it is not a repurposing candidate", async () => {
+    const [row] = await sql`
+      select d.molecule_id from drugs d join medicine_use_status us on us.molecule_id = d.molecule_id
+       where us.status = 'antibacterial' and lower(d.generic_name) = 'ciprofloxacin' limit 1`;
+    const page = readable(await html(`/investigate/${row.molecule_id}`));
+    assert.ok(/already an antibacterial medicine, so it is not counted among the repurposing/.test(page));
+    assert.ok(!/being investigated here for AI-predicted antibacterial activity/.test(page));
+  });
+});
+
+describe("the downloads are the site's own data", () => {
+  it("approved medicines: the complete library, one row per medicine", async () => {
+    const [row] = await sql`
+      select count(distinct molecule_id) as n from drugs where molecule_id is not null`;
+    const { header, rows } = await csv("/api/export/approved-medicines");
+    assert.equal(rows.length, Number(row.n), `${row.n} medicines`);
+    const key = header.indexOf("InChIKey");
+    assert.ok(key >= 0);
+    assert.equal(new Set(rows.map((r) => r[key])).size, rows.length, "no medicine twice");
+    for (const k of ["MRSA", "E. coli", "K. pneumoniae", "M. tuberculosis"]) {
+      assert.ok(header.includes(`AI-predicted activity: ${k} (%)`), `has the ${k} prediction column`);
+    }
+    assert.ok(header.includes("Existing / approved use") && header.includes("Anti-infective classification"));
+    const cls = header.indexOf("Anti-infective classification");
+    assert.ok(rows.some((r) => r[cls] === "Existing antibacterial"), "antibacterials are kept in the library");
+  });
+
+  it("repurposing candidates: exactly the dashboard's population, and per pathogen", async () => {
+    const ids = await candidateIds();
+    const { header, rows } = await csv("/api/export/repurposing-candidates");
+    const key = header.indexOf("InChIKey");
+    const got = rows.map((r) => r[key]);
+    assert.equal(got.length, ids.size, `${ids.size} candidates`);
+    assert.equal(new Set(got).size, got.length, "no medicine twice");
+    assert.deepEqual(new Set(got), ids, "the same medicines as the database definition");
+    const cls = header.indexOf("Anti-infective classification");
+    assert.ok(!rows.some((r) => r[cls] === "Existing antibacterial"), "no existing antibacterial");
+
+    const dashboard = readable(await html("/dashboard"));
+    assert.ok(dashboard.includes(`${grouped(ids.size)} rows`), "the download is labelled with the dashboard count");
+
+    for (const k of PATHOGENS) {
+      const want = await candidateIds(k);
+      const part = await csv(`/api/export/repurposing-candidates?pathogen=${k}`);
+      assert.deepEqual(new Set(part.rows.map((r) => r[key])), want, `${k} export matches its list`);
+    }
+  });
+
+  it("contain public research data only", async () => {
+    const env = readEnv();
+    const secrets = [env.DATABASE_URL, env.SUPABASE_SECRET_KEY, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY]
+      .filter(Boolean);
+    let password = null;
+    try { password = decodeURIComponent(new URL(env.DATABASE_URL).password) || null; } catch {}
+    for (const route of ["/api/export/approved-medicines", "/api/export/repurposing-candidates"]) {
+      const { text, header } = await csv(route);
+      for (const s of secrets) assert.ok(!text.includes(s), `${route} must not contain a credential`);
+      if (password) assert.ok(!text.includes(password), `${route} must not contain the database password`);
+      for (const pattern of [/postgres(ql)?:\/\//i, /supabase/i, /RF-(mrsa|ecoli|kpneumoniae|mtb)-v\d/, /DS-20\d{6}/, /drug_id|dataset_version|model_version/]) {
+        assert.ok(!pattern.test(text), `${route} must not contain ${pattern}`);
+      }
+      assert.ok(!header.some((h) => /effective|efficacy|cure|treatment/i.test(h)), "no clinical-benefit column names");
+      assert.ok(!/^[=+\-@]/m.test(text.replace(/^\uFEFF/, "")), "no cell can run as a spreadsheet formula");
+    }
+    const bad = await fetch(`${BASE_URL}/api/export/repurposing-candidates?pathogen=zzz`);
+    assert.equal(bad.status, 400);
+  });
+});
+
 const PUBLIC_ROUTES = [
   "/",
   "/dashboard",
@@ -499,6 +799,10 @@ const PUBLIC_ROUTES = [
   "/investigate?condition=Tuberculosis",
   "/investigate?condition=Migraine",
   "/investigate?medicine=cipro",
+  "/investigate?pathogen=mrsa",
+  "/investigate?pathogen=ecoli",
+  "/investigate?pathogen=kpneumoniae",
+  "/investigate?pathogen=mtb",
 ];
 
 describe("no page exposes the machinery", () => {
@@ -535,6 +839,10 @@ describe("no page claims clinical benefit", () => {
     /recommended for treatment/i,
     /best (alternative|candidate|drug|medicine)s?/i,
     /top (\d+ )?candidates/i,
+    /effective (drug|medicine)s/i,
+    /recommended (drug|medicine)s/i,
+    /treatment probability/i,
+    /most effective/i,
   ];
 
   for (const route of PUBLIC_ROUTES) {

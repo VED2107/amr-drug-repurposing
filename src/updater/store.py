@@ -86,6 +86,11 @@ class SupabaseStore:
             self._url,
             row_factory=dict_row,
             options=f"-c search_path={SCHEMA},public",
+            # Never server-side prepared statements: psycopg prepares a query
+            # after it has run a few times, and through the transaction pooler
+            # the next transaction may land on a backend that never saw it
+            # ('prepared statement "_pg3_1" does not exist').
+            prepare_threshold=None,
         )
 
     def close(self) -> None:
@@ -321,17 +326,20 @@ class SupabaseStore:
                 insert into drugs (
                     drug_id, molecule_id, generic_name, brand_name, approval_source,
                     approval_status, application_no, application_type, marketing_status,
-                    dosage_form, route, approval_date, chembl_id, match_method,
+                    dosage_form, route, approval_date, chembl_id, match_method, ingredients,
                     first_seen_at, processing_status, prediction_status
                 ) values (
                     %(drug_id)s, %(molecule_id)s, %(generic_name)s, %(brand_name)s,
                     %(approval_source)s, %(approval_status)s, %(application_no)s,
                     %(application_type)s, %(marketing_status)s, %(dosage_form)s,
                     %(route)s, %(approval_date)s, %(chembl_id)s, %(match_method)s,
-                    %(first_seen_at)s, %(processing_status)s, %(prediction_status)s
+                    %(ingredients)s, %(first_seen_at)s, %(processing_status)s, %(prediction_status)s
                 )
                 on conflict (drug_id) do update set
-                    molecule_id      = coalesce(excluded.molecule_id, drugs.molecule_id),
+                    -- A corrected match replaces the old one, including with
+                    -- "no reliable structure"; keeping the old id is how a
+                    -- wrong structure used to survive a fixed matcher.
+                    molecule_id      = excluded.molecule_id,
                     marketing_status = excluded.marketing_status,
                     match_method     = excluded.match_method,
                     prediction_status = excluded.prediction_status

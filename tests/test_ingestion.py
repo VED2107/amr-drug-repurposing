@@ -186,10 +186,17 @@ class TestOrangeBook:
         "raw,expected",
         [
             ("AMOXICILLIN TRIHYDRATE", "amoxicillin"),
-            ("Metoprolol Succinate", "metoprolol"),
+            # Succinate and phosphate can be esters (hydrocortisone sodium
+            # succinate, dexamethasone sodium phosphate), so they are never
+            # stripped; the ChEMBL parent resolves true salts instead.
+            ("Metoprolol Succinate", "metoprolol succinate"),
             ("CIPROFLOXACIN HYDROCHLORIDE", "ciprofloxacin"),
             ("TRIMETHOPRIM", "trimethoprim"),
-            ("Dexamethasone Sodium Phosphate", "dexamethasone"),
+            ("Dexamethasone Sodium Phosphate", "dexamethasone sodium phosphate"),
+            ("HYDROCORTISONE ACETATE", "hydrocortisone acetate"),
+            ("TESTOSTERONE PROPIONATE", "testosterone propionate"),
+            ("NICOTINE POLACRILEX", "nicotine"),
+            ("SODIUM CHLORIDE", "sodium chloride"),
             ("ibuprofen (micronized)", "ibuprofen"),
             (None, ""),
         ],
@@ -218,6 +225,82 @@ class TestOrangeBook:
         hit, method = match_product_to_molecule(product, index)
         assert hit["chembl_id"] == "CHEMBL1082"
         assert method.startswith("combination_component")
+
+    # ---- the audit's wrong mappings ------------------------------------
+    CHEMBL = [
+        {"chembl_id": "CHEMBL389621", "pref_name": "HYDROCORTISONE", "synonyms": ["CORTISOL"]},
+        {"chembl_id": "CHEMBL1091", "pref_name": "HYDROCORTISONE ACETATE", "synonyms": []},
+        {"chembl_id": "CHEMBL386630", "pref_name": "TESTOSTERONE", "synonyms": []},
+        {"chembl_id": "CHEMBL1170", "pref_name": "TESTOSTERONE PROPIONATE", "synonyms": []},
+        {"chembl_id": "CHEMBL1435", "pref_name": "CEFAZOLIN", "synonyms": []},
+        {"chembl_id": "CHEMBL1200843", "pref_name": "CEFAZOLIN SODIUM", "synonyms": []},
+        {"chembl_id": "CHEMBL1200458", "pref_name": "POTASSIUM CHLORIDE", "synonyms": []},
+        {"chembl_id": "CHEMBL1060", "pref_name": "SODIUM PHOSPHATE, DIBASIC", "synonyms": []},
+    ]
+    # Structures as the ingest stage resolves them: salts point at their
+    # ChEMBL parent; esters are their own parent; inorganic has none.
+    STRUCTURE = {
+        "CHEMBL389621": "HYDROCORTISONE-KEY", "CHEMBL1091": "HYDROCORTISONE-ACETATE-KEY",
+        "CHEMBL386630": "TESTOSTERONE-KEY", "CHEMBL1170": "TESTOSTERONE-PROPIONATE-KEY",
+        "CHEMBL1435": "CEFAZOLIN-KEY", "CHEMBL1200843": "CEFAZOLIN-KEY",
+        "CHEMBL1200458": None, "CHEMBL1060": None,
+    }
+
+    def _match(self, name):
+        from src.ingestion.orange_book import match_components
+        index = build_name_index(self.CHEMBL)
+        product = ApprovedProduct(name, "X", "N1", "N", "RX", None, None, None, "test")
+        return match_components(product, index, self.STRUCTURE.get)
+
+    @pytest.mark.parametrize("name, key", [
+        ("HYDROCORTISONE", "HYDROCORTISONE-KEY"),
+        ("HYDROCORTISONE ACETATE", "HYDROCORTISONE-ACETATE-KEY"),
+        ("TESTOSTERONE", "TESTOSTERONE-KEY"),
+        ("TESTOSTERONE PROPIONATE", "TESTOSTERONE-PROPIONATE-KEY"),
+        ("CEFAZOLIN SODIUM", "CEFAZOLIN-KEY"),
+    ])
+    def test_each_ingredient_gets_its_own_structure(self, name, key):
+        [m] = self._match(name)
+        assert self.STRUCTURE[m.molecule["chembl_id"]] == key
+        assert m.method == "exact_name"
+
+    def test_the_first_name_seen_no_longer_wins(self):
+        # The old index kept whichever molecule claimed "hydrocortisone" first.
+        reordered = list(reversed(self.CHEMBL))
+        from src.ingestion.orange_book import match_components
+        product = ApprovedProduct("HYDROCORTISONE", "X", "N1", "N", "RX", None, None, None, "test")
+        [a] = match_components(product, build_name_index(self.CHEMBL), self.STRUCTURE.get)
+        [b] = match_components(product, build_name_index(reordered), self.STRUCTURE.get)
+        assert a.molecule["chembl_id"] == b.molecule["chembl_id"] == "CHEMBL389621"
+
+    @pytest.mark.parametrize("name", ["SODIUM CHLORIDE", "SODIUM NITROPRUSSIDE", "SODIUM LACTATE", "POTASSIUM CHLORIDE"])
+    def test_sodium_prefixed_products_do_not_collapse(self, name):
+        [m] = self._match(name)
+        assert m.molecule is None, f"{name} must not borrow another substance's structure"
+
+    def test_a_name_meaning_two_structures_is_not_guessed(self):
+        from src.ingestion.orange_book import match_components
+        index = build_name_index([
+            {"chembl_id": "CHEMBL1", "pref_name": "DRUGX", "synonyms": []},
+            {"chembl_id": "CHEMBL2", "pref_name": "DRUGX", "synonyms": []},
+        ])
+        product = ApprovedProduct("DRUGX", "X", "N1", "N", "RX", None, None, None, "test")
+        [m] = match_components(product, index, {"CHEMBL1": "A", "CHEMBL2": "B"}.get)
+        assert m.molecule is None and m.method == "ambiguous_name"
+
+    def test_every_component_of_a_combination_is_represented(self):
+        from src.ingestion.orange_book import product_rows
+        index = build_name_index(self.CHEMBL)
+        product = ApprovedProduct("HYDROCORTISONE; CEFAZOLIN SODIUM", "X", "N9", "N", "RX", None, None, None, "test")
+        rows = list(product_rows([product], index, self.STRUCTURE.get))
+        assert [r.generic_name for r in rows] == ["HYDROCORTISONE", "CEFAZOLIN SODIUM"]
+        assert [r.drug_id.split("~")[1] for r in rows] == ["1", "2"]
+        assert all(r.ingredients == product.generic_name for r in rows)
+        assert [self.STRUCTURE[r.chembl_id] for r in rows] == ["HYDROCORTISONE-KEY", "CEFAZOLIN-KEY"]
+
+    def test_no_leading_word_guess(self):
+        [m] = self._match("HYDROCORTISONE BUTEPRATE")
+        assert m.molecule is None and m.method == "unmatched"
 
     def test_unmatched_products_are_reported_not_guessed(self):
         index = build_name_index([{"chembl_id": "CHEMBL25", "pref_name": "ASPIRIN", "synonyms": []}])

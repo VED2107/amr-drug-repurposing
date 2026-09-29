@@ -202,8 +202,19 @@ def run_update(argv: list[str] | None = None) -> int:
             if record is None or not record.is_valid or not record.molecule_id:
                 no_structure += 1
                 continue
-            if record.molecule_id in published.molecule_ids or record.molecule_id in seen:
+            if record.molecule_id in seen:
                 continue
+            if record.molecule_id in published.molecule_ids:
+                # Already stored, but an approved product now resolves to it
+                # (for instance after a corrected structure match) and it lacks
+                # a prediction from a current model: score it. Inference only.
+                in_library = bool(products_by_chembl.get(molecule.chembl_id or ""))
+                unscored = any(
+                    (record.molecule_id, p, loaded[p].meta.model_version) not in published.scored
+                    for p in scoreable
+                )
+                if not (in_library and unscored):
+                    continue
             seen.add(record.molecule_id)
             new_molecules.append((molecule, record))
             if len(new_molecules) >= max_new:
@@ -319,6 +330,7 @@ def run_update(argv: list[str] | None = None) -> int:
                                 "approval_date": product.approval_date,
                                 "chembl_id": product.chembl_id,
                                 "match_method": product.match_method,
+                                "ingredients": product.ingredients,
                                 "first_seen_at": utcnow(),
                                 "processing_status": "processed",
                                 "prediction_status": "scored" if prediction_rows else "pending",

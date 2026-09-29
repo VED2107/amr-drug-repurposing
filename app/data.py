@@ -351,8 +351,12 @@ def clinical_coverage() -> dict[str, int]:
         return {
             "medicines_total": n("SELECT COUNT(DISTINCT molecule_id) FROM drugs "
                                  "WHERE molecule_id IS NOT NULL"),
-            "medicines_checked": n("SELECT COUNT(*) FROM clinical_queries"),
-            "medicines_with_records": n("SELECT COUNT(DISTINCT molecule_id) FROM clinical_trials"),
+            # Only library medicines: a structure that a corrected match no
+            # longer uses keeps its old query row, but is not a medicine here.
+            "medicines_checked": n("SELECT COUNT(*) FROM clinical_queries WHERE molecule_id IN "
+                                   "(SELECT molecule_id FROM drugs)"),
+            "medicines_with_records": n("SELECT COUNT(DISTINCT molecule_id) FROM clinical_trials "
+                                        "WHERE molecule_id IN (SELECT molecule_id FROM drugs)"),
             "studies": n("SELECT COUNT(*) FROM clinical_trials"),
             "conditions": n("SELECT COUNT(DISTINCT conditions) FROM clinical_trials "
                             "WHERE conditions IS NOT NULL AND TRIM(conditions) <> ''"),

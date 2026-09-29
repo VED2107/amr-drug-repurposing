@@ -21,6 +21,10 @@ Usage::
     # load straight into Supabase (service role connection string)
     python -m scripts.export_to_postgres --database-url "$SUPABASE_DB_URL"
 
+    # replace only some tables, leaving every other table as it is
+    python -m scripts.export_to_postgres --database-url "$SUPABASE_DB_URL" \
+        --tables medicine_classes medicine_indications medicine_use_status
+
 The connection string is read from the environment or the command line and is
 never written to disk by this script.
 """
@@ -54,6 +58,9 @@ TABLES: tuple[str, ...] = (
     "docking_results",
     "clinical_queries",
     "clinical_trials",
+    "medicine_classes",
+    "medicine_indications",
+    "medicine_use_status",
     "pipeline_runs",
     "pipeline_errors",
     "data_sources",
@@ -173,8 +180,15 @@ def write_csvs(conn: sqlite3.Connection, out_dir: Path) -> dict[str, int]:
     return counts
 
 
-def load_direct(conn: sqlite3.Connection, database_url: str) -> dict[str, int]:
-    """Load straight into Postgres over a connection string."""
+def load_direct(
+    conn: sqlite3.Connection, database_url: str, tables: Sequence[str] = TABLES
+) -> dict[str, int]:
+    """Load straight into Postgres over a connection string.
+
+    ``tables`` limits the load to those tables. They are truncated without
+    ``cascade``, so a partial load that would empty a table another one depends
+    on fails instead of silently wiping it.
+    """
     try:
         import psycopg
     except ImportError as exc:  # pragma: no cover - depends on the environment
@@ -187,10 +201,11 @@ def load_direct(conn: sqlite3.Connection, database_url: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     with psycopg.connect(database_url) as pg:
         with pg.cursor() as cur:
+            partial = tuple(tables) != TABLES
             # Truncate in reverse dependency order so a re-run is idempotent.
-            for table in reversed(TABLES):
-                cur.execute(f"truncate table amr.{table} cascade")
-            for table in TABLES:
+            for table in reversed(tables):
+                cur.execute(f"truncate table amr.{table}{'' if partial else ' cascade'}")
+            for table in tables:
                 columns = source_columns(conn, table)
                 quoted = ", ".join(f'"{c}"' for c in columns)
                 placeholders = ", ".join(["%s"] * len(columns))
@@ -227,6 +242,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Postgres connection string (defaults to $SUPABASE_DB_URL)",
     )
     parser.add_argument(
+        "--tables",
+        nargs="+",
+        choices=TABLES,
+        help="load only these tables (with --database-url); the others are left untouched",
+    )
+    parser.add_argument(
         "--allow-demo",
         action="store_true",
         help="export even if demo rows are present (never use for production)",
@@ -244,8 +265,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.allow_demo:
             assert_no_demo_rows(conn)
 
+        tables = tuple(t for t in TABLES if t in (args.tables or TABLES))
         counts = (
-            load_direct(conn, args.database_url)
+            load_direct(conn, args.database_url, tables)
             if args.database_url
             else write_csvs(conn, args.out)
         )

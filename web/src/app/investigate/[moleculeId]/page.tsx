@@ -25,10 +25,11 @@ import {
   getPredictionsForMolecule,
   wasClinicallyChecked,
 } from "@/lib/queries/core";
+import { getExistingUse, getRepurposingCandidates } from "@/lib/queries/repurposing";
+import { existingUseText, type ExistingUse } from "@/lib/existing-use";
 import {
   countStudiesForMedicine,
   getBestDocking,
-  getCandidates,
   getStereoisomerInTraining,
   getStructureSmiles,
   getStudies,
@@ -66,7 +67,7 @@ export default async function MedicinePage(props: {
   // When the reader has picked a bacterium, its list does not wait for the
   // medicine's own predictions and can start with everything else.
   const early = isPathogenKey(chosen)
-    ? getCandidates({ pathogenKey: chosen, exclude: moleculeId, page: candidatePage })
+    ? getRepurposingCandidates({ pathogenKey: chosen, exclude: moleculeId, page: candidatePage })
     : null;
   // Marked handled now; if it fails, the `await` below still rethrows.
   early?.catch(() => undefined);
@@ -74,7 +75,7 @@ export default async function MedicinePage(props: {
   // Every read that does not depend on another starts at once: one round trip
   // to the database for the whole page, not one for the medicine and another
   // for everything else.
-  const [medicine, brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal, smiles] =
+  const [medicine, brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal, smiles, uses] =
     await Promise.all([
       getMedicineByMoleculeId(moleculeId),
       getBrandsForMolecule(moleculeId),
@@ -92,6 +93,7 @@ export default async function MedicinePage(props: {
       }),
       countStudiesForMedicine(moleculeId),
       getStructureSmiles(moleculeId),
+      getExistingUse([moleculeId]),
     ]);
   if (!medicine) notFound();
 
@@ -111,7 +113,7 @@ export default async function MedicinePage(props: {
   const candidates = early
     ? await early
     : focus
-      ? await getCandidates({ pathogenKey: focus, exclude: moleculeId, page: candidatePage })
+      ? await getRepurposingCandidates({ pathogenKey: focus, exclude: moleculeId, page: candidatePage })
       : null;
 
   const path = `/investigate/${encodeURIComponent(moleculeId)}`;
@@ -121,6 +123,12 @@ export default async function MedicinePage(props: {
     ...new Set(brands.map((b) => b.brandName).filter((b): b is string => !!b).map(medicineName)),
   ];
   const labPathogens = PATHOGEN_KEYS.filter((k) => measured[k]?.records);
+  const use = uses.get(moleculeId);
+  const qualifying = PATHOGEN_KEYS.filter((k) => (predictionFor(k)?.probability ?? 0) >= DISCOVERY_THRESHOLD);
+  // The bacterium the reader came from reads first.
+  const reasons = isPathogenKey(chosen) && qualifying.includes(chosen)
+    ? [chosen, ...qualifying.filter((k) => k !== chosen)]
+    : qualifying;
   const labTotal = labPathogens.reduce((a, k) => a + measured[k].records, 0);
   // The Orange Book writes form and route together ("TABLET;ORAL").
   const product = (medicine.dosageForm ?? medicine.route ?? "")
@@ -141,7 +149,7 @@ export default async function MedicinePage(props: {
             {brandNames.length
               ? `, marketed as ${brandNames.slice(0, 3).join(", ")}${brandNames.length > 3 ? ` and ${brandNames.length - 3} more` : ""}`
               : ""}
-            . The indication it is approved for is not recorded in this dataset.
+            .
           </p>
           <dl className="m-0 mt-6 flex flex-wrap gap-x-8 gap-y-3">
             <Fact label="Registered studies" value={clinical.checked ? n(studyTotal) : "Not yet checked"} />
@@ -155,7 +163,53 @@ export default async function MedicinePage(props: {
         <StructureFigure moleculeId={moleculeId} hasStructure={smiles !== null} label={name} priority />
       </header>
 
-      {/* --- AI-predicted activity ---------------------------------- */}
+      {/* --- 1. Existing use ------------------------------------------ */}
+      <div className="mt-12">
+        <DocumentedBlock id="existing-use" title="Existing / approved use" tag="Documented · FDA, WHO, ChEMBL">
+          <ExistingUseBody use={use} name={name} />
+        </DocumentedBlock>
+      </div>
+
+      {/* --- 2. Why it appears here --------------------------------------- */}
+      <section
+        id="repurposing"
+        aria-labelledby="repurposing-h"
+        className="mt-6 scroll-mt-24 rounded-card border border-rule bg-raised p-4 md:p-6"
+      >
+        <h2 id="repurposing-h" className="m-0 font-display text-[clamp(19px,2vw,24px)] font-semibold tracking-[-0.01em] text-ink">
+          Repurposing investigation
+        </h2>
+        <p className="m-0 mt-3 max-w-[72ch] text-[15px] leading-relaxed text-ink-2">
+          {use?.status === "antibacterial" ? (
+            <>
+              {name} is already an antibacterial medicine, so it is not counted among the repurposing
+              candidates. Its AI-predicted activity is shown below for reference.
+            </>
+          ) : reasons.length > 0 && use?.status !== "unclassified" && use?.status ? (
+            <>
+              This medicine is being investigated here for AI-predicted antibacterial activity
+              against{" "}
+              <strong className="font-semibold text-ink">{listOf(reasons.map(label))}</strong>. It was
+              surfaced computationally for further investigation; it is not an established
+              treatment for {reasons.length === 1 ? "this infection" : "these infections"}.
+            </>
+          ) : reasons.length > 0 ? (
+            <>
+              {name} reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted activity against{" "}
+              {listOf(reasons.map(label))}, but no WHO ATC code or FDA pharmacologic class says
+              whether it is already an antibacterial. It needs review, so it is not counted among
+              the repurposing candidates.
+            </>
+          ) : (
+            <>
+              No supported bacterium reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted activity for{" "}
+              {name}, so it is not among the repurposing candidates. Its predictions are shown below.
+            </>
+          )}
+        </p>
+      </section>
+
+      {/* --- 3. AI-predicted activity ---------------------------------- */}
       <div className="mt-12">
         <ComputationalBlock id="activity" title="AI-predicted activity">
           <ul className="m-0 list-none p-0">
@@ -187,7 +241,7 @@ export default async function MedicinePage(props: {
         </ComputationalBlock>
       </div>
 
-      {/* --- Evidence --------------------------------------------------- */}
+      {/* --- 4. Existing evidence ---------------------------------------- */}
       <section aria-labelledby="evidence-h" className="mt-12">
         <h2 id="evidence-h" className="sr-only">
           Evidence
@@ -290,9 +344,10 @@ export default async function MedicinePage(props: {
       <div className="mt-12">
         <ComputationalBlock id="candidates" title="Other medicines to investigate">
           <p className="m-0 max-w-[76ch] text-[13px] leading-relaxed text-ink-2">
-            Medicines other than {name} with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT}{" "}
-            against the chosen bacterium. They are computational candidates
-            for further investigation, not alternatives and not recommendations.
+            Other repurposing candidates: approved medicines besides {name} with AI-predicted
+            activity {DISCOVERY_THRESHOLD_TEXT} against the chosen bacterium, leaving out existing
+            antibacterials. They are computational candidates for further investigation, not
+            alternatives and not recommendations.
           </p>
 
           <nav aria-label="Bacterium" className="mt-4 flex flex-wrap gap-1.5">
@@ -333,7 +388,7 @@ export default async function MedicinePage(props: {
         </ComputationalBlock>
       </div>
 
-      {/* --- Registered studies ---------------------------------------- */}
+      {/* --- 5. Clinical studies ----------------------------------------- */}
       <section id="studies" className="mt-12 scroll-mt-24">
         <SectionHead title="Registered studies" note={STUDY_NOTE} />
         {!clinical.checked ? (
@@ -415,6 +470,112 @@ function Fact({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-[12px] text-muted">{label}</dt>
       <dd className="m-0 mt-0.5 font-mono text-[18px] font-medium tabular-nums text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function listOf(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+const STATUS_LINE: Record<string, string> = {
+  antibacterial: "Classified as an existing antibacterial.",
+  other_anti_infective:
+    "Classified as an anti-infective that is not an antibacterial (for example an antifungal, antiviral or antiparasitic medicine).",
+  not_anti_infective: "Not classified as an anti-infective.",
+  unclassified:
+    "Neither a WHO ATC code nor an FDA pharmacologic class was found for it, so whether it is already an antibacterial is not established. It needs review and is not counted as a repurposing candidate.",
+};
+
+/** What the medicine is already approved and classified for, with sources. */
+function ExistingUseBody({ use, name }: { use: ExistingUse | undefined; name: string }) {
+  const summary = existingUseText(use, 12);
+  if (!use || (!summary && !use.status)) {
+    return (
+      <StateNote kind="unchecked" head="Not yet checked">
+        The approved use of {name} has not been looked up in the classification sources yet.
+      </StateNote>
+    );
+  }
+  return (
+    <div className="grid gap-5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div>
+        {use.indications.length > 0 ? (
+          <>
+            <p className="m-0 text-[12px] text-muted">Approved for</p>
+            <ul className="m-0 mt-1.5 flex list-none flex-wrap gap-1.5 p-0">
+              {use.indications.slice(0, 16).map((i) => (
+                <li key={i} className="rounded-card border border-rule bg-paper px-2 py-1 text-[13px] text-ink">
+                  {i.charAt(0).toUpperCase() + i.slice(1)}
+                </li>
+              ))}
+              {use.indications.length > 16 ? (
+                <li className="px-1 py-1 text-[13px] text-muted">and {use.indications.length - 16} more</li>
+              ) : null}
+            </ul>
+            <p className="m-0 mt-2 text-[12px] leading-snug text-muted">
+              Indications ChEMBL records as approved, from FDA and DailyMed labels.
+              {use.indicationSource ? (
+                <>
+                  {" "}
+                  <a href={use.indicationSource} target="_blank" rel="noreferrer">
+                    Label ↗
+                  </a>
+                </>
+              ) : null}
+            </p>
+          </>
+        ) : (
+          <StateNote kind="none" head="No approved indication recorded">
+            ChEMBL records no approved indication for {name}. Its therapeutic class is shown instead.
+          </StateNote>
+        )}
+      </div>
+      <dl className="m-0 grid content-start gap-3 text-[13px]">
+        {use.atcGroups.length > 0 ? (
+          <div>
+            <dt className="text-[12px] text-muted">WHO therapeutic group</dt>
+            <dd className="m-0 mt-0.5 text-ink">
+              {use.atcGroups
+                .slice(0, 5)
+                .map((g) => g.charAt(0) + g.slice(1).toLowerCase())
+                .join("; ")}
+            </dd>
+          </div>
+        ) : null}
+        {use.fdaClasses.length > 0 ? (
+          <div>
+            <dt className="text-[12px] text-muted">FDA pharmacologic class</dt>
+            <dd className="m-0 mt-0.5 text-ink">
+              {use.fdaClasses.join("; ")}
+              {use.labelSetId ? (
+                <>
+                  {" "}
+                  <a
+                    href={`https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=${encodeURIComponent(use.labelSetId)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    FDA label ↗
+                  </a>
+                </>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
+        {use.status ? (
+          <div>
+            <dt className="text-[12px] text-muted">Anti-infective classification</dt>
+            <dd className="m-0 mt-0.5 leading-snug text-ink-2">
+              {STATUS_LINE[use.status]}
+              {use.basis && use.status !== "not_anti_infective" ? (
+                <span className="mt-0.5 block font-mono text-[11px] text-muted">{use.basis}</span>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
     </div>
   );
 }
