@@ -131,13 +131,13 @@ export function ActivityRow({
   const fraction = shown ? Math.max(0, Math.min(1, probability)) : 0;
 
   return (
-    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 border-b border-rule-soft py-4 first:pt-0 last:border-b-0 last:pb-0">
+    <li className="grid grid-cols-1 items-baseline gap-x-4 gap-y-2 border-b sm:grid-cols-[minmax(0,1fr)_auto] border-rule-soft py-4 first:pt-0 last:border-b-0 last:pb-0">
       <span className="flex items-center gap-3 font-display text-[16px] font-semibold text-ink">
         <OrganismCell pathogen={pathogenKey} size={30} />
         {pathogenLabel}
       </span>
       {shown ? (
-        <span className="text-right">
+        <span className="whitespace-nowrap sm:text-right">
           <span
             className="font-mono text-[24px] font-medium tabular-nums leading-none"
             style={{ color: meets ? "var(--color-computational)" : "var(--color-ink-2)" }}
@@ -147,10 +147,10 @@ export function ActivityRow({
           <span className="text-[12px] text-muted">{ACTIVITY_LABEL}</span>
         </span>
       ) : (
-        <span className="text-right text-[13px] text-muted">No prediction available</span>
+        <span className="text-[13px] text-muted sm:text-right">No prediction available</span>
       )}
       {shown ? (
-        <span aria-hidden="true" className="amr-activity relative col-span-2 block h-[10px]">
+        <span aria-hidden="true" className="amr-activity relative col-span-full mt-4 block h-[10px]">
           <span className="absolute inset-x-0 top-1/2 block h-px bg-rule" />
           <span
             className="amr-activity-bar absolute inset-y-0 left-0 block rounded-full"
@@ -172,7 +172,7 @@ export function ActivityRow({
         </span>
       ) : null}
       {shown || note ? (
-        <span className="col-span-2 text-[12px] leading-relaxed text-muted">
+        <span className="col-span-full text-[12px] leading-relaxed text-muted">
           {shown
             ? meets
               ? `At or above the ${DISCOVERY_THRESHOLD_TEXT} mark this site uses to surface candidates.`
