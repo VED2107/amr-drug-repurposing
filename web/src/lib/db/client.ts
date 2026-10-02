@@ -101,16 +101,14 @@ async function createSupabaseDriver(): Promise<Driver> {
     // deployment on Vercel should connect through.
     prepare: false,
     /*
-      A page issues its queries with `Promise.all`, so they are concurrent by
-      intent. With a single connection they were serialised anyway, and each one
-      paid the full round trip to the database in turn — which is how a page
-      with ten queries took seconds rather than one round trip's worth.
-
-      Ten covers the widest `Promise.all` on any page (the medicine view issues
-      twelve reads at once; with five they ran in three waves) while staying far
-      below what the transaction pooler allows per client.
+      On Vercel, every serverless function invocation can start its own Node
+      process, each of which opens its own pool. With tens of concurrent
+      instances, the connections multiply: 10 per instance × 20 instances =
+      200, which is the pooler's hard limit. Two connections per instance
+      keeps the aggregate well under 200 even during traffic spikes, while
+      still allowing two concurrent reads on a single page.
     */
-    max: 10,
+    max: 2,
     /*
       One statement in flight per connection. By default postgres.js pipelines:
       it writes the next queued statement before the previous reply arrives. If
@@ -124,13 +122,14 @@ async function createSupabaseDriver(): Promise<Driver> {
     // 3.4 type definitions, hence the spread.
     ...({ max_pipeline: 0 } as object),
     /*
-      How long an idle connection is kept. At 20 seconds, any pause longer than
-      that closed the connection, and the next page paid a fresh TLS and auth
-      handshake to the pooler (measured from India to Sydney: 2.6 s instead of
-      0.35 s). Five minutes keeps a connection warm between ordinary reads; the
-      pool is still capped at ten, far below the pooler's per-client limit.
+      How long an idle connection is kept. Sixty seconds is long enough to
+      share a connection across the reads of a page and across a reader who
+      clicks through two or three medicines, but short enough that a quiet
+      instance releases its connections before the pooler accumulates too many.
+      (At 300 s and max: 10, idle instances held connections for five minutes
+      and the pooler reached its 200-connection limit during normal use.)
     */
-    idle_timeout: 300,
+    idle_timeout: 60,
     // The production tables live in the `amr` schema, but the queries are
     // written unqualified so that the same statement runs against the research
     // SQLite file. Setting the search path here is what keeps that true.
@@ -310,15 +309,13 @@ const cachedRead = unstable_cache(
 );
 
 /**
- * Open the whole connection pool ahead of traffic.
+ * Open the connection pool ahead of traffic.
  *
- * A page issues its reads at once, and on a cold cache each concurrent read
- * opens its own connection, paying the pooler handshake (about 2.5 s from
- * this machine) in parallel. Running the same number of trivial reads at
- * start-up does that once, before anyone is waiting. Called from
- * `instrumentation.ts`; failures are ignored.
+ * Warms both connections in the (now small) pool so the first page does not
+ * pay two pooler handshakes. Called from `instrumentation.ts`; failures are
+ * ignored — requests still open connections as they always did.
  */
-export async function warmPool(connections = 10): Promise<void> {
+export async function warmPool(connections = 2): Promise<void> {
   if (dataSource() === "sqlite") return;
   const d = await driver();
   await Promise.all(Array.from({ length: connections }, () => d.all("select 1", []).catch(() => [])));

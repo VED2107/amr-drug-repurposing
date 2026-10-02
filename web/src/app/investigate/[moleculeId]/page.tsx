@@ -73,30 +73,62 @@ export default async function MedicinePage(props: {
   // Marked handled now; if it fails, the `await` below still rethrows.
   early?.catch(() => undefined);
 
-  // Every read that does not depend on another starts at once: one round trip
-  // to the database for the whole page, not one for the medicine and another
-  // for everything else.
-  const [medicine, brands, pathogens, predictions, measured, docking, clinical, stereo, conditions, studies, studyTotal, smiles, uses] =
-    await Promise.all([
-      getMedicineByMoleculeId(moleculeId),
-      getBrandsForMolecule(moleculeId),
-      getPathogens(),
-      getPredictionsForMolecule(moleculeId),
-      getMeasuredCountsByPathogen(moleculeId),
-      getBestDocking(moleculeId),
-      wasClinicallyChecked(moleculeId),
-      getStereoisomerInTraining(moleculeId),
-      getStudyConditionsForMedicine(moleculeId),
-      getStudies({
-        moleculeId,
-        terms: studyCondition ? [studyCondition.toLowerCase()] : undefined,
-        page: numberParam(params, "sp") ?? 1,
-      }),
-      countStudiesForMedicine(moleculeId),
-      getStructureSmiles(moleculeId),
-      getExistingUse([moleculeId]),
-    ]);
+  // ── Core queries: the page cannot render without these ─────────────────
+  // If any of these fails, the error page fires — which is the correct
+  // outcome, because there is nothing to show without the medicine itself.
+  const [medicine, pathogens, predictions, smiles] = await Promise.all([
+    getMedicineByMoleculeId(moleculeId),
+    getPathogens(),
+    getPredictionsForMolecule(moleculeId),
+    getStructureSmiles(moleculeId),
+  ]);
   if (!medicine) notFound();
+
+  // ── Supporting queries: graceful degradation ──────────────────────────
+  // A transient connection failure in any of these must not bring down the
+  // whole page. Each result is unwrapped individually: a fulfilled promise
+  // yields its value, a rejected one yields `undefined`. The UI then shows
+  // "could not load" for that section, never a fabricated zero or "no
+  // evidence found" — those are scientific statements, and a database
+  // failure is not one.
+  const settled = await Promise.allSettled([
+    getBrandsForMolecule(moleculeId),                                     // 0
+    getMeasuredCountsByPathogen(moleculeId),                               // 1
+    getBestDocking(moleculeId),                                            // 2
+    wasClinicallyChecked(moleculeId),                                      // 3
+    getStereoisomerInTraining(moleculeId),                                 // 4
+    getStudyConditionsForMedicine(moleculeId),                             // 5
+    getStudies({                                                           // 6
+      moleculeId,
+      terms: studyCondition ? [studyCondition.toLowerCase()] : undefined,
+      page: numberParam(params, "sp") ?? 1,
+    }),
+    countStudiesForMedicine(moleculeId),                                   // 7
+    getExistingUse([moleculeId]),                                          // 8
+  ]);
+
+  type Settled<T> = PromiseSettledResult<Awaited<T>>;
+  const ok = <T,>(s: Settled<T>): T | undefined =>
+    s.status === "fulfilled" ? s.value : undefined;
+
+  const brands = ok(settled[0] as Settled<ReturnType<typeof getBrandsForMolecule>>) ?? [];
+  const measured = ok(settled[1] as Settled<ReturnType<typeof getMeasuredCountsByPathogen>>);
+  const docking = ok(settled[2] as Settled<ReturnType<typeof getBestDocking>>);
+  const clinical = ok(settled[3] as Settled<ReturnType<typeof wasClinicallyChecked>>);
+  const stereo = ok(settled[4] as Settled<ReturnType<typeof getStereoisomerInTraining>>) ?? [];
+  const conditions = ok(settled[5] as Settled<ReturnType<typeof getStudyConditionsForMedicine>>) ?? [];
+  const studies = ok(settled[6] as Settled<ReturnType<typeof getStudies>>);
+  const studyTotal = ok(settled[7] as Settled<ReturnType<typeof countStudiesForMedicine>>);
+  const usesMap = ok(settled[8] as Settled<ReturnType<typeof getExistingUse>>);
+
+  // Track which sections had a database failure (as opposed to a genuine
+  // empty result). The distinction matters: "no lab records" is a finding;
+  // "could not reach the database" is not.
+  const measuredFailed = settled[1].status === "rejected";
+  const dockingFailed = settled[2].status === "rejected";
+  const clinicalFailed = settled[3].status === "rejected";
+  const studiesFailed = settled[6].status === "rejected";
+  const studyTotalFailed = settled[7].status === "rejected";
 
   const label = (key: PathogenKey) => pathogens.find((p) => p.key === key)?.label ?? key;
   const predictionFor = (key: PathogenKey) => predictions.find((p) => p.pathogenKey === key) ?? null;
@@ -123,14 +155,14 @@ export default async function MedicinePage(props: {
   const brandNames = [
     ...new Set(brands.map((b) => b.brandName).filter((b): b is string => !!b).map(medicineName)),
   ];
-  const labPathogens = PATHOGEN_KEYS.filter((k) => measured[k]?.records);
-  const use = uses.get(moleculeId);
+  const labPathogens = measured ? PATHOGEN_KEYS.filter((k) => measured[k]?.records) : [];
+  const use = usesMap?.get(moleculeId);
   const qualifying = PATHOGEN_KEYS.filter((k) => (predictionFor(k)?.probability ?? 0) >= DISCOVERY_THRESHOLD);
   // The bacterium the reader came from reads first.
   const reasons = isPathogenKey(chosen) && qualifying.includes(chosen)
     ? [chosen, ...qualifying.filter((k) => k !== chosen)]
     : qualifying;
-  const labTotal = labPathogens.reduce((a, k) => a + measured[k].records, 0);
+  const labTotal = measured ? labPathogens.reduce((a, k) => a + measured[k].records, 0) : null;
   // The Orange Book writes form and route together ("TABLET;ORAL").
   const product = (medicine.dosageForm ?? medicine.route ?? "")
     .split(";")
@@ -153,8 +185,8 @@ export default async function MedicinePage(props: {
             .
           </p>
           <dl className="m-0 mt-6 flex flex-wrap gap-x-8 gap-y-3">
-            <Fact label="Registered studies" value={clinical.checked ? studyCountText(studyTotal) : "Not yet checked"} />
-            <Fact label="Lab records" value={n(labTotal)} />
+            <Fact label="Registered studies" value={clinicalFailed || studyTotalFailed ? "—" : clinical?.checked ? studyCountText(studyTotal!) : "Not yet checked"} />
+            <Fact label="Lab records" value={measuredFailed ? "—" : labTotal !== null ? n(labTotal) : "—"} />
             <Fact
               label={`Pathogens at ${DISCOVERY_THRESHOLD_TEXT}`}
               value={`${predicted.filter((k) => (predictionFor(k)?.probability ?? 0) >= DISCOVERY_THRESHOLD).length} of 4`}
@@ -251,10 +283,14 @@ export default async function MedicinePage(props: {
           <DocumentedBlock id="evidence" title="Clinical and experimental">
             <div className="grid gap-6 sm:grid-cols-2">
               <EvidencePart kind="clinical" title="Clinical">
-                {!clinical.checked ? (
+                {clinicalFailed ? (
+                  <QueryUnavailable>Could not load clinical evidence right now.</QueryUnavailable>
+                ) : !clinical?.checked ? (
                   <StateNote kind="unchecked" head="Not yet checked">
                     The trial registry has not been searched for this medicine.
                   </StateNote>
+                ) : studyTotalFailed ? (
+                  <QueryUnavailable>Could not load the study count right now.</QueryUnavailable>
                 ) : studyTotal === 0 ? (
                   <StateNote kind="none" head="No evidence found">
                     The registry was searched and no registered study names this medicine.
@@ -262,11 +298,11 @@ export default async function MedicinePage(props: {
                 ) : (
                   <p className="m-0 text-[13px] leading-snug text-ink-2">
                     <span className="block font-mono text-[24px] font-medium tabular-nums text-ink">
-                      {studyCountText(studyTotal)}
+                      {studyCountText(studyTotal!)}
                     </span>
                     registered {studyTotal === 1 ? "study names" : "studies name"} this medicine,
                     for any condition.
-                    {studyTotal >= STUDIES_PER_MEDICINE_CAP
+                    {studyTotal! >= STUDIES_PER_MEDICINE_CAP
                       ? ` The registry search keeps the first ${STUDIES_PER_MEDICINE_CAP}, so there may be more.`
                       : ""} <Link href="#studies">See them below</Link>.
                   </p>
@@ -274,7 +310,9 @@ export default async function MedicinePage(props: {
               </EvidencePart>
 
               <EvidencePart kind="experimental" title="Experimental">
-                {labPathogens.length === 0 ? (
+                {measuredFailed ? (
+                  <QueryUnavailable>Could not load lab records right now.</QueryUnavailable>
+                ) : labPathogens.length === 0 ? (
                   <StateNote kind="none" head="No evidence found">
                     No laboratory measurement against the four bacteria in the ChEMBL records
                     loaded here.
@@ -284,8 +322,8 @@ export default async function MedicinePage(props: {
                     {labPathogens.map((k) => (
                       <li key={k} className="text-[13px] leading-snug text-ink-2">
                         <strong className="font-semibold text-ink">{label(k)}</strong>: measured
-                        active in {n(measured[k].actives)} of {n(measured[k].records)} lab{" "}
-                        {measured[k].records === 1 ? "record" : "records"}
+                        active in {n(measured![k].actives)} of {n(measured![k].records)} lab{" "}
+                        {measured![k].records === 1 ? "record" : "records"}
                       </li>
                     ))}
                   </ul>
@@ -299,14 +337,14 @@ export default async function MedicinePage(props: {
                   Open {name} in ChEMBL <span data-arrow aria-hidden="true">↗</span>
                 </a>
               ) : null}
-              {clinical.checked && studyTotal > 0 ? (
+              {clinical?.checked && !clinicalFailed && !studyTotalFailed && studyTotal! > 0 ? (
                 <Link href="#studies" className="amr-btn-quiet">
                   Registered studies below <span data-arrow aria-hidden="true">↓</span>
                 </Link>
               ) : null}
             </div>
 
-            {labTotal > 0 ? (
+            {labTotal !== null && labTotal > 0 ? (
               <LabRecords
                 moleculeId={moleculeId}
                 total={labTotal}
@@ -316,7 +354,9 @@ export default async function MedicinePage(props: {
           </DocumentedBlock>
 
           <ComputationalBlock title="Docking" tag="Computational · nothing measured">
-            {docking.length === 0 ? (
+            {dockingFailed ? (
+              <QueryUnavailable>Could not load docking results right now.</QueryUnavailable>
+            ) : !docking || docking.length === 0 ? (
               <StateNote kind="unchecked" head="Not yet docked">
                 Docking has been run for a subset of medicines only.
               </StateNote>
@@ -398,13 +438,17 @@ export default async function MedicinePage(props: {
       {/* --- 5. Clinical studies ----------------------------------------- */}
       <section id="studies" className="mt-12 scroll-mt-24">
         <SectionHead title="Registered studies" note={STUDY_NOTE} />
-        {!clinical.checked ? (
+        {clinicalFailed ? (
+          <QueryUnavailable>Could not load registered studies right now.</QueryUnavailable>
+        ) : !clinical?.checked ? (
           <p className="m-0 text-[13px] text-ink-2">
             Not yet checked: the registry has not been searched for this medicine.
           </p>
         ) : (
           <>
-            {conditions.length > 0 ? (
+            {studiesFailed ? (
+              <QueryUnavailable>Could not load study details right now.</QueryUnavailable>
+            ) : conditions.length > 0 ? (
               <form action={`${path}#studies`} method="get" className="mb-4 flex flex-wrap items-end gap-2.5">
                 {focus && firstValue(params, "p") ? <input type="hidden" name="p" value={focus} /> : null}
                 <label className="flex min-w-0 flex-1 basis-[240px] flex-col gap-1.5 sm:max-w-[520px]">
@@ -436,14 +480,15 @@ export default async function MedicinePage(props: {
                   </button>
                   </span>
                 </label>
-                {studies.total > 0 ? <StudiesToggle target="medicine-studies" total={studies.total} /> : null}
+                {studies && studies.total > 0 ? <StudiesToggle target="medicine-studies" total={studies.total} /> : null}
               </form>
-            ) : studies.total > 0 ? (
+            ) : studies && studies.total > 0 ? (
               <div className="mb-4">
                 <StudiesToggle target="medicine-studies" total={studies.total} />
               </div>
             ) : null}
             <div id="medicine-studies">
+            {studies ? (
             <StudyList
               data={studies}
               path={path}
@@ -456,6 +501,9 @@ export default async function MedicinePage(props: {
                   : "No evidence found: the registry was searched and no registered study names this medicine."
               }
             />
+            ) : (
+              <QueryUnavailable>Could not load study list right now.</QueryUnavailable>
+            )}
             </div>
           </>
         )}
@@ -667,5 +715,20 @@ function ExistingUseBody({ use, name }: { use: ExistingUse | undefined; name: st
         ) : null}
       </dl>
     </div>
+  );
+}
+
+/**
+ * What the reader sees when a supporting query could not reach the database.
+ *
+ * This is not "no evidence" — it is "we could not check". The wording must
+ * never be mistaken for a scientific conclusion. A reader who sees this knows
+ * to reload, not to conclude that evidence is absent.
+ */
+function QueryUnavailable({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="m-0 rounded-card border border-rule bg-sunken px-4 py-3 text-[13px] leading-relaxed text-muted">
+      {children}
+    </p>
   );
 }
