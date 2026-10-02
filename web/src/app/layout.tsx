@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import { AppShell } from "@/components/shell/AppShell";
 import { getBuildInfo } from "@/lib/queries/build";
 import "./globals.css";
+import "./story.css";
 
 /**
  * The three faces of the design: a grotesque for structure, a serif for

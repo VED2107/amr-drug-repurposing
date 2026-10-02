@@ -432,7 +432,9 @@ export interface Study {
   phase: string | null;
   status: string | null;
   startDate: string | null;
-  url: string | null;
+  completionDate: string | null;
+  studyType: string | null;
+  enrollment: number | null;
 }
 
 export interface StudyPage {
@@ -482,7 +484,9 @@ export async function getStudies(options: {
             max(ct.phase)           as phase,
             max(ct.overall_status)  as status,
             max(ct.start_date)      as start_date,
-            max(ct.url)             as url
+            max(ct.completion_date) as completion_date,
+            max(ct.study_type)      as study_type,
+            max(ct.enrollment)      as enrollment
        from clinical_trials ct ${clause}
       group by ct.nct_id
       order by case when max(ct.start_date) is null then 1 else 0 end,
@@ -504,7 +508,9 @@ export async function getStudies(options: {
       phase: s(r.phase),
       status: s(r.status),
       startDate: s(r.start_date),
-      url: s(r.url),
+      completionDate: s(r.completion_date),
+      studyType: s(r.study_type),
+      enrollment: toNum(r.enrollment) ?? null,
     })),
   };
 }
@@ -545,4 +551,26 @@ export async function getStudyConditionsForMedicine(
   return [...counts.values()]
     .sort((a, b) => b.studies - a.studies || a.name.localeCompare(b.name))
     .slice(0, limit);
+}
+
+/** Registered studies per start year (distinct studies), for the timeline. */
+export async function getStudyTimeline(terms?: string[]): Promise<{ year: number; n: number }[]> {
+  const where: string[] = ["ct.start_date is not null", "length(ct.start_date) >= 4"];
+  const params: string[] = [];
+  if (terms && terms.length > 0) {
+    const match = conditionMatch(terms);
+    where.push(match.sql);
+    params.push(...match.params);
+  }
+  const rows = await query<Record<string, unknown>>(
+    `select substr(ct.start_date, 1, 4) as year, count(distinct ct.nct_id) as n
+       from clinical_trials ct
+      where ${where.join(" and ")}
+      group by substr(ct.start_date, 1, 4)
+      order by 1`,
+    params,
+  );
+  return rows
+    .map((r) => ({ year: Number(r.year), n: toNum(r.n) ?? 0 }))
+    .filter((r) => Number.isFinite(r.year) && r.year > 1900);
 }

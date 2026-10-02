@@ -14,25 +14,45 @@ const NAV = [
 /**
  * Identity, the two places to start, and the search once the reader is
  * investigating. The overview and the dashboard carry their own search.
+ *
+ * Built from the site's one action shape, the capsule: the brand sits in a
+ * capsule chip with the mark, and the navigation is a capsule switch whose ink
+ * pill slides to the page you are on. A hairline along the lower edge fills as
+ * the page is read.
  */
 export function Header() {
   const pathname = usePathname();
   const investigating = pathname.startsWith("/investigate");
+  const at = NAV.findIndex((item) => item.href === pathname);
 
   return (
     <header
       style={{ viewTransitionName: "site-header" }}
-      className="sticky top-0 z-40 border-b border-rule bg-[rgba(246,244,239,0.94)] backdrop-blur-[8px]"
+      className="amr-header sticky top-0 z-40 border-b border-rule bg-[rgba(246,244,239,0.94)] backdrop-blur-[8px]"
     >
-      <div className="mx-auto flex max-w-shell flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2.5 md:px-8 lg:px-12">
-        <Link href="/" aria-label="AMR Drug Repurposing — overview" className="flex min-h-11 items-center gap-3 no-underline">
-          <Mark size={28} />
-          <span className="font-display text-[15px] font-semibold tracking-[-0.01em] text-ink">
-            AMR Drug Repurposing
+      <span aria-hidden="true" className="amr-progress" />
+      <div className="mx-auto flex max-w-shell flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-8 lg:px-12">
+        <Link href="/" aria-label="AMR Drug Repurposing, Smart Screening: overview" className="amr-brand flex items-center gap-3 rounded-full no-underline">
+          <Mark size={36} className="rounded-full" />
+          <span className="flex flex-col pr-3 leading-none">
+            <span className="font-display text-[15px] font-semibold tracking-[-0.01em] text-ink">
+              AMR Drug Repurposing
+            </span>
+            <span className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+              Smart Screening
+              <span aria-hidden="true" className="h-px w-3 bg-rule-strong" />
+              <span className="normal-case tracking-normal">research prototype</span>
+            </span>
           </span>
         </Link>
 
-        <nav aria-label="Main" className="flex items-center gap-1">
+        <nav
+          aria-label="Main"
+          className="amr-navpill relative grid grid-cols-2 rounded-full"
+          style={{ ["--at" as string]: Math.max(at, 0) }}
+          data-none={at < 0 ? "" : undefined}
+        >
+          <span aria-hidden="true" className="amr-navpill-ink" />
           {NAV.map((item) => {
             const on = pathname === item.href;
             return (
@@ -40,9 +60,7 @@ export function Header() {
                 key={item.href}
                 href={item.href}
                 aria-current={on ? "page" : undefined}
-                className={`inline-flex min-h-11 items-center rounded-card px-3 font-display text-[14px] font-medium no-underline ${
-                  on ? "text-ink underline decoration-accent decoration-2 underline-offset-[6px]" : "text-ink-2 hover-ink"
-                }`}
+                className="amr-navlink relative z-[1] inline-flex min-h-10 items-center justify-center rounded-full px-4 font-display text-[13px] font-semibold no-underline"
               >
                 {item.label}
               </Link>
@@ -51,7 +69,7 @@ export function Header() {
         </nav>
 
         {investigating ? (
-          <div className="min-w-0 flex-1 basis-[320px] lg:ml-auto lg:max-w-[620px]">
+          <div className="min-w-0 flex-1 basis-[320px] lg:ml-auto lg:max-w-[640px]">
             <InvestigateSearch compact />
           </div>
         ) : null}

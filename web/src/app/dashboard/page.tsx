@@ -1,10 +1,15 @@
 import Link from "next/link";
 
 import { StudyList, STUDY_NOTE } from "@/components/investigate";
+import { DownloadButton } from "@/components/shell/DownloadButton";
+import { CandidateFlow } from "@/components/story/CandidateFlow";
+import { OrganismCell } from "@/components/story/diagrams";
 import { Page } from "@/components/primitives";
 import { InvestigateSearch } from "@/components/search/InvestigateSearch";
 import { SearchField } from "@/components/search/SearchField";
-import { conditionTerms, getStudies } from "@/lib/queries/investigate";
+import { StudiesToggle } from "@/components/investigate/StudiesToggle";
+import { StudyTimeline } from "@/components/investigate/StudyTimeline";
+import { conditionTerms, getStudies, getStudyTimeline } from "@/lib/queries/investigate";
 import { getRepurposingSummary } from "@/lib/queries/repurposing";
 import { DISCOVERY_THRESHOLD_TEXT } from "@/lib/science";
 import { firstValue, numberParam, type RawSearchParams } from "@/lib/url";
@@ -22,12 +27,11 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
   const studyCondition = (firstValue(params, "sc") ?? "").trim();
   const studyPage = numberParam(params, "sp") ?? 1;
 
-  const [summary, studies] = await Promise.all([
+  const studyTerms = studyCondition ? conditionTerms(studyCondition, null) : undefined;
+  const [summary, studies, timeline] = await Promise.all([
     getRepurposingSummary(),
-    getStudies({
-      terms: studyCondition ? conditionTerms(studyCondition, null) : undefined,
-      page: studyPage,
-    }),
+    getStudies({ terms: studyTerms, page: studyPage }),
+    getStudyTimeline(studyTerms),
   ]);
 
   const n = (v: number) => v.toLocaleString("en-GB");
@@ -70,47 +74,43 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
         <h2 id="funnel-h" className="m-0 text-[13px] font-medium text-ink-2">
           How the repurposing candidates are counted
         </h2>
-        <ol className="m-0 mt-3 grid list-none gap-2 p-0 text-[13px] sm:grid-cols-2 lg:grid-cols-5">
-          <Stage value={n(summary.medicines)} text="approved medicines" />
-          <Stage
-            value={n(summary.withActivity)}
-            text={`with AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT} against at least one pathogen`}
+        <div className="mt-5">
+          <CandidateFlow
+            medicines={summary.medicines}
+            withActivity={summary.withActivity}
+            existingAntibacterials={summary.existingAntibacterials}
+            needsReview={summary.needsReview}
+            candidates={summary.candidates}
+            threshold={DISCOVERY_THRESHOLD_TEXT}
           />
-          <Stage
-            value={`− ${n(summary.existingAntibacterials)}`}
-            text="already antibacterial medicines, set aside (WHO ATC and FDA classification)"
-          />
-          <Stage
-            value={`− ${n(summary.needsReview)}`}
-            text="needing review: no WHO ATC code or FDA class says whether they are antibacterials"
-          />
-          <Stage value={n(summary.candidates)} text="repurposing candidates" accent />
-        </ol>
+        </div>
         <p className="m-0 mt-3 text-[12px] leading-relaxed text-muted">
-          Medicines needing review stay in the approved-medicine download, marked
+          Existing antibacterials are identified from WHO ATC codes and FDA pharmacologic
+          classes. Medicines needing review (neither source says whether they are
+          antibacterials) stay in the approved-medicine download, marked
           &ldquo;unclassified&rdquo;. They are not assumed to be non-antibacterials, so they are
           not counted as candidates.
         </p>
       </section>
 
-      <section aria-labelledby="downloads-h" className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+      <section aria-labelledby="downloads-h" className="mt-4 flex flex-wrap items-start gap-x-4 gap-y-3">
         <h2 id="downloads-h" className="sr-only">
           Downloads
         </h2>
-        <a href="/api/export/approved-medicines" download className="amr-btn-quiet">
+        <DownloadButton href="/api/export/approved-medicines">
           Download approved medicines (CSV)
-          <span className="font-mono text-[11px] font-normal text-muted">{n(summary.medicines)} rows</span>
-        </a>
-        <a href="/api/export/repurposing-candidates" download className="amr-btn-quiet">
+          <span className="ml-2 font-mono text-[11px] font-normal opacity-70">{n(summary.medicines)} rows</span>
+        </DownloadButton>
+        <DownloadButton href="/api/export/repurposing-candidates">
           Download repurposing candidates (CSV)
-          <span className="font-mono text-[11px] font-normal text-muted">{n(summary.candidates)} rows</span>
-        </a>
+          <span className="ml-2 font-mono text-[11px] font-normal opacity-70">{n(summary.candidates)} rows</span>
+        </DownloadButton>
       </section>
 
       <section aria-labelledby="pathogens" className="mt-12">
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-rule pb-2">
           <h2 id="pathogens" className="m-0 font-display text-[clamp(19px,2vw,24px)] font-semibold tracking-[-0.01em] text-ink">
-            AI-supported pathogens
+            Pathogen coverage
           </h2>
           <p className="m-0 text-[13px] text-muted">A medicine can count under more than one</p>
         </div>
@@ -121,11 +121,14 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
                 href={`/investigate?pathogen=${p.key}`}
                 className="amr-card group flex h-full flex-col gap-4 rounded-card border border-rule bg-raised p-4 no-underline md:p-5"
               >
-                <span>
-                  <span className="block font-display text-[18px] font-semibold text-ink">
-                    {p.label}
+                <span className="flex items-center gap-3">
+                  <OrganismCell pathogen={p.key} size={44} />
+                  <span>
+                    <span className="block font-display text-[18px] font-semibold text-ink">
+                      {p.label}
+                    </span>
+                    <span className="block text-[12px] italic text-muted">{p.fullName}</span>
                   </span>
-                  <span className="block text-[12px] italic text-muted">{p.fullName}</span>
                 </span>
                 <span className="mt-auto">
                   <span className="block font-mono text-[26px] font-medium tabular-nums leading-none text-computational">
@@ -134,14 +137,35 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
                   <span className="mt-1.5 block text-[12px] leading-snug text-ink-2">
                     Repurposing candidates with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT}
                   </span>
-                  <span aria-hidden="true" className="mt-3 block h-1 rounded-full bg-sunken">
-                    <span
-                      className="block h-full rounded-full bg-computational"
-                      style={{ width: `${summary.medicines ? (p.candidates / summary.medicines) * 100 : 0}%` }}
-                    />
+                  {/* What reached the floor for this species, split three ways, on
+                      one scale (the whole library) so the cards compare. */}
+                  <span aria-hidden="true" className="amr-split mt-3 flex h-2 w-full">
+                    {[
+                      { v: p.candidates, c: "bg-computational" },
+                      { v: p.existingAntibacterials, c: "bg-accent" },
+                      { v: p.needsReview, c: "bg-faint" },
+                    ].map((seg, i) => (
+                      <span
+                        key={i}
+                        className={`block h-full ${seg.c}`}
+                        style={{ width: `${summary.medicines ? (seg.v / summary.medicines) * 100 : 0}%` }}
+                      />
+                    ))}
                   </span>
-                  <span className="mt-1.5 block font-mono text-[11px] tabular-nums text-muted">
-                    {n(p.withActivity)} at {DISCOVERY_THRESHOLD_TEXT}, less {n(p.existingAntibacterials)} antibacterials and {n(p.needsReview)} needing review
+                  <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums text-muted">
+                    <span>{n(p.withActivity)} at {DISCOVERY_THRESHOLD_TEXT}:</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span aria-hidden="true" className="h-1.5 w-1.5 bg-computational" />
+                      {n(p.candidates)} candidates
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span aria-hidden="true" className="h-1.5 w-1.5 bg-accent" />
+                      {n(p.existingAntibacterials)} antibacterials
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span aria-hidden="true" className="h-1.5 w-1.5 bg-faint" />
+                      {n(p.needsReview)} needing review
+                    </span>
                   </span>
                 </span>
                 <span className="text-[13px] font-medium text-ink decoration-accent underline-offset-4 group-hover:underline">
@@ -161,21 +185,32 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
           <p className="m-0 text-[13px] text-muted">{STUDY_NOTE}</p>
         </div>
 
-        <form action="/dashboard#studies" method="get" className="mb-4 flex flex-wrap items-end gap-2">
-          <label className="flex min-w-0 flex-1 basis-[260px] flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-ink-2">Condition</span>
-            <SearchField
-              name="sc"
-              source="conditions"
-              label="Filter studies by condition"
-              placeholder="All conditions"
-              defaultValue={studyCondition}
-              submitOnSelect
-            />
-          </label>
-          <button type="submit" className="amr-btn-quiet">
-            Filter
-          </button>
+        <form action="/dashboard#studies" method="get" className="mb-4 flex flex-wrap items-end gap-2.5">
+          <div className="flex min-w-0 flex-1 basis-[300px] flex-col gap-1.5 sm:max-w-[620px]">
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Condition</span>
+            <div className="amr-filter flex items-center">
+              <SearchField
+                name="sc"
+                source="conditions"
+                label="Filter studies by condition"
+                placeholder="All conditions, or type one, e.g. Tuberculosis"
+                defaultValue={studyCondition}
+                submitOnSelect
+                className="min-w-0 flex-1"
+                inputClassName="amr-search-input"
+              />
+              <button type="submit" className="amr-search-go amr-search-go-sm">
+                Filter
+              <span aria-hidden="true" className="amr-search-go-cap">
+                <svg viewBox="0 0 16 16" width="14" height="14">
+                  <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M10.4 10.4 14 14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+              </span>
+              </button>
+            </div>
+          </div>
+          <StudiesToggle target="studies-body" total={studies.total} />
           {studyCondition ? (
             <Link href="/dashboard#studies" className="amr-btn-quiet">
               All conditions
@@ -190,6 +225,8 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
           </p>
         ) : null}
 
+        <div id="studies-body">
+        <StudyTimeline data={timeline} total={studies.total} />
         <StudyList
           data={studies}
           path="/dashboard"
@@ -203,6 +240,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
             </>
           }
         />
+        </div>
       </section>
 
       <p className="m-0 mt-12 max-w-[80ch] border-t border-rule pt-4 text-[12px] leading-relaxed text-muted">
@@ -236,19 +274,5 @@ function Figure({
       <p className="m-0 mt-3 font-display text-[15px] font-semibold leading-snug text-ink">{label}</p>
       {note ? <p className="m-0 mt-1 text-[12px] leading-snug text-muted">{note}</p> : null}
     </div>
-  );
-}
-
-function Stage({ value, text, accent = false }: { value: string; text: string; accent?: boolean }) {
-  return (
-    <li className="rounded-card bg-paper p-3">
-      <span
-        className="block font-mono text-[20px] font-medium tabular-nums leading-none"
-        style={{ color: accent ? "var(--color-computational)" : "var(--color-ink)" }}
-      >
-        {value}
-      </span>
-      <span className="mt-1.5 block text-[12px] leading-snug text-ink-2">{text}</span>
-    </li>
   );
 }

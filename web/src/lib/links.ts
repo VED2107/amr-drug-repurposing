@@ -9,5 +9,3 @@ export const chemblCompound = (id: string) => `${CHEMBL}/compound/${encodeURICom
 export const chemblAssay = (id: string) => `${CHEMBL}/assay/${encodeURIComponent(id)}`;
 export const chemblDocument = (id: string) => `${CHEMBL}/document/${encodeURIComponent(id)}`;
 export const pdbStructure = (id: string) => `https://www.rcsb.org/structure/${encodeURIComponent(id)}`;
-export const trialRecord = (nctId: string) =>
-  `https://clinicaltrials.gov/study/${encodeURIComponent(nctId)}`;

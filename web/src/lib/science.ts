@@ -140,3 +140,13 @@ export const DOCKING_SCREENING_TARGET_KCAL_MOL = -7.0;
 export const NO_MODEL_NOTICE =
   "No AI activity model is currently available for this condition. Predictions exist " +
   "only for MRSA, E. coli, K. pneumoniae and M. tuberculosis, so no percentage is shown.";
+
+/**
+ * How a laboratory record is labelled for training, from
+ * `configs/config.yaml` (labeling.active_threshold_pactivity = 5.0 and
+ * labeling.inactive_threshold_pactivity = 4.0). Potency is -log10 of the molar
+ * concentration, so 5.0 is 10 µM and 4.0 is 100 µM. Records between the two
+ * are ambiguous and are not used. Keep in step with the config.
+ */
+export const LABEL_ACTIVE_MICROMOLAR = 10;
+export const LABEL_INACTIVE_MICROMOLAR = 100;

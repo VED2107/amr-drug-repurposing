@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { ButtonPointer } from "./ButtonPointer";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
 
@@ -17,6 +18,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <Footer />
+      <ButtonPointer />
     </div>
   );
 }

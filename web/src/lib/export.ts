@@ -141,6 +141,27 @@ export async function repurposingCandidatesCsv(
   return { csv: toCsv(header, rows), rows: rows.length };
 }
 
+/**
+ * A download name that says what the file is without opening it: the project,
+ * the population, how many rows, and the day it was generated (UTC). Readers
+ * kept ending up with files named only "approved-medicines.csv" from several
+ * days, and could not tell an old export from a new one.
+ */
+export function exportFilename(population: string, rows: number): string {
+  const day = new Date().toISOString().slice(0, 10);
+  return `smart-screening_${population}_${rows}-rows_${day}.csv`;
+}
+
+/** The headers every CSV response carries. */
+export function csvHeaders(filename: string, rows: number): HeadersInit {
+  return {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    "cache-control": "no-store",
+    "x-row-count": String(rows),
+  };
+}
+
 /** The three-valued flag. A medicine never looked up reads "not yet checked". */
 function antibacterialFlag(r: LibraryRecord): string {
   if (!r.use?.status) return "not yet checked";

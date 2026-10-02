@@ -15,7 +15,9 @@ import {
 } from "@/components/investigate";
 import { LabRecords } from "@/components/investigate/LabRecords";
 import { StructureFigure } from "@/components/molecular/StructureFigure";
+import { StudiesToggle } from "@/components/investigate/StudiesToggle";
 import { Page } from "@/components/primitives";
+import { OrganismCell } from "@/components/story/diagrams";
 import { medicineName } from "@/lib/format";
 import {
   getBrandsForMolecule,
@@ -289,13 +291,17 @@ export default async function MedicinePage(props: {
               </EvidencePart>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-rule-soft pt-4 text-[13px]">
+            <div className="mt-5 flex flex-wrap gap-2 border-t border-rule-soft pt-4">
               {medicine.chemblId ? (
-                <a href={chemblCompound(medicine.chemblId)} target="_blank" rel="noreferrer">
-                  Open {name} in ChEMBL ↗
+                <a href={chemblCompound(medicine.chemblId)} target="_blank" rel="noreferrer" className="amr-btn-quiet">
+                  Open {name} in ChEMBL <span data-arrow aria-hidden="true">↗</span>
                 </a>
               ) : null}
-              {clinical.checked && studyTotal > 0 ? <Link href="#studies">Registered studies below</Link> : null}
+              {clinical.checked && studyTotal > 0 ? (
+                <Link href="#studies" className="amr-btn-quiet">
+                  Registered studies below <span data-arrow aria-hidden="true">↓</span>
+                </Link>
+              ) : null}
             </div>
 
             {labTotal > 0 ? (
@@ -313,28 +319,24 @@ export default async function MedicinePage(props: {
                 Docking has been run for a subset of medicines only.
               </StateNote>
             ) : (
-              <ul className="m-0 list-none space-y-2 p-0">
+              <div className="flex flex-col gap-5">
                 {docking.map((d) => (
-                  <li key={d.pathogenKey} className="text-[13px] leading-snug text-ink-2">
-                    {d.pdbId ? (
-                      <a href={pdbStructure(d.pdbId)} target="_blank" rel="noreferrer">
-                        {d.targetName} ↗
-                      </a>
-                    ) : (
-                      d.targetName
-                    )}{" "}
-                    ({label(d.pathogenKey)}):{" "}
-                    <span className="font-mono tabular-nums text-ink">
-                      {d.scoreKcalMol.toFixed(1)} kcal/mol
-                    </span>
-                  </li>
+                  <DockingRuler
+                    key={d.pathogenKey}
+                    score={d.scoreKcalMol}
+                    target={DOCKING_SCREENING_TARGET_KCAL_MOL}
+                    pathogen={d.pathogenKey}
+                    pathogenLabel={label(d.pathogenKey)}
+                    targetName={d.targetName}
+                    href={d.pdbId ? pdbStructure(d.pdbId) : null}
+                  />
                 ))}
-                <li className="text-[12px] leading-snug text-muted">
+                <p className="m-0 text-[12px] leading-snug text-muted">
                   This project&rsquo;s screening target is{" "}
-                  {DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol. A docking score is not
-                  proof of binding.
-                </li>
-              </ul>
+                  {DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol, its own mark rather than a
+                  universal cutoff. A docking score is not proof of binding.
+                </p>
+              </div>
             )}
           </ComputationalBlock>
         </div>
@@ -350,7 +352,7 @@ export default async function MedicinePage(props: {
             alternatives and not recommendations.
           </p>
 
-          <nav aria-label="Bacterium" className="mt-4 flex flex-wrap gap-1.5">
+          <nav aria-label="Bacterium" className="amr-species mt-4 inline-flex flex-wrap gap-1 rounded-[26px] bg-sunken p-1">
             {PATHOGEN_KEYS.map((k) => {
               const on = k === focus;
               return (
@@ -359,10 +361,13 @@ export default async function MedicinePage(props: {
                   href={`${withParams(path, params, { p: k, cp: null })}#candidates`}
                   aria-current={on ? "true" : undefined}
                   scroll={false}
-                  className={`inline-flex min-h-10 items-center gap-1.5 rounded-card border px-3 font-display text-[13px] font-semibold no-underline ${
-                    on ? "border-ink bg-ink text-paper" : "border-rule-strong bg-raised text-ink hover-row"
+                  className={`amr-species-link inline-flex min-h-10 items-center gap-2 rounded-full py-1 pl-1.5 pr-3.5 font-display text-[13px] font-semibold no-underline ${
+                    k === "mrsa" ? "" : "italic"
                   }`}
                 >
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-raised">
+                    <OrganismCell pathogen={k} size={22} />
+                  </span>
                   {label(k)}
                 </Link>
               );
@@ -398,16 +403,17 @@ export default async function MedicinePage(props: {
         ) : (
           <>
             {conditions.length > 0 ? (
-              <form action={`${path}#studies`} method="get" className="mb-4 flex flex-wrap items-end gap-2">
+              <form action={`${path}#studies`} method="get" className="mb-4 flex flex-wrap items-end gap-2.5">
                 {focus && firstValue(params, "p") ? <input type="hidden" name="p" value={focus} /> : null}
-                <label className="flex min-w-0 flex-1 basis-[240px] flex-col gap-1.5 sm:max-w-[420px]">
+                <label className="flex min-w-0 flex-1 basis-[240px] flex-col gap-1.5 sm:max-w-[520px]">
                   <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
                     Condition
                   </span>
+                  <span className="amr-filter flex items-center">
                   <select
                     name="sc"
                     defaultValue={studyCondition}
-                    className="min-h-11 w-full rounded-card border border-rule-strong bg-pure px-3 font-mono text-[12px] text-ink"
+                    className="amr-search-input min-h-10 w-full min-w-0 flex-1 appearance-none bg-transparent px-3 font-mono text-[12px] text-ink"
                   >
                     <option value="">All conditions</option>
                     {conditions.map((c) => (
@@ -416,12 +422,26 @@ export default async function MedicinePage(props: {
                       </option>
                     ))}
                   </select>
+                  <span aria-hidden="true" className="amr-select-chevron" />
+                  <button type="submit" className="amr-search-go amr-search-go-sm">
+                    Filter
+                    <span aria-hidden="true" className="amr-search-go-cap">
+                <svg viewBox="0 0 16 16" width="14" height="14">
+                  <circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M10.4 10.4 14 14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+              </span>
+                  </button>
+                  </span>
                 </label>
-                <button type="submit" className="amr-btn-quiet">
-                  Filter
-                </button>
+                {studies.total > 0 ? <StudiesToggle target="medicine-studies" total={studies.total} /> : null}
               </form>
+            ) : studies.total > 0 ? (
+              <div className="mb-4">
+                <StudiesToggle target="medicine-studies" total={studies.total} />
+              </div>
             ) : null}
+            <div id="medicine-studies">
             <StudyList
               data={studies}
               path={path}
@@ -434,6 +454,7 @@ export default async function MedicinePage(props: {
                   : "No evidence found: the registry was searched and no registered study names this medicine."
               }
             />
+            </div>
           </>
         )}
       </section>
@@ -442,6 +463,71 @@ export default async function MedicinePage(props: {
         <DoesNotEstablish />
       </div>
     </Page>
+  );
+}
+
+/**
+ * A docking score placed on a short kcal/mol scale (0 to -12, more negative is
+ * a better fit), with this project's screening target marked. A picture of a
+ * computer estimate: nothing here was measured.
+ */
+function DockingRuler({
+  score,
+  target,
+  pathogen,
+  pathogenLabel,
+  targetName,
+  href,
+}: {
+  score: number;
+  target: number;
+  pathogen: PathogenKey;
+  pathogenLabel: string;
+  targetName: string;
+  href: string | null;
+}) {
+  const MIN = -12;
+  const pos = (v: number) => `${Math.max(0, Math.min(1, v / MIN)) * 100}%`;
+  const meets = score <= target;
+  return (
+    <div>
+      <p className="m-0 flex items-center gap-2 text-[13px] leading-snug text-ink-2">
+        <OrganismCell pathogen={pathogen} size={22} />
+        <span>
+          {href ? (
+            <a href={href} target="_blank" rel="noreferrer">
+              {targetName} ↗
+            </a>
+          ) : (
+            targetName
+          )}{" "}
+          <span className="text-muted">({pathogenLabel})</span>
+        </span>
+      </p>
+      <p className="m-0 mt-2 font-mono text-[22px] tabular-nums leading-none" style={{ color: meets ? "var(--color-computational)" : "var(--color-ink)" }}>
+        {score.toFixed(1)} <span className="text-[12px] text-muted">kcal/mol</span>
+      </p>
+      <div aria-hidden="true" className="relative mt-5 h-[10px]">
+        <span className="absolute inset-x-0 top-1/2 block h-px bg-rule-strong" />
+        <span className="absolute -top-[5px] block h-5 w-px bg-accent" style={{ left: pos(target) }} />
+        <span className="absolute -top-[18px] -translate-x-1/2 font-mono text-[9.5px] text-accent" style={{ left: pos(target) }}>
+          {target.toFixed(1)}
+        </span>
+        <span
+          className="amr-dock-marker absolute top-1/2 block h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border-2"
+          style={{
+            left: pos(score),
+            borderColor: "var(--color-computational)",
+            background: meets ? "var(--color-computational)" : "var(--color-raised)",
+          }}
+        />
+      </div>
+      <div className="mt-1.5 flex justify-between font-mono text-[9.5px] text-muted">
+        <span>0</span>
+        <span>better fit →</span>
+        <span>{MIN}</span>
+      </div>
+    </div>
   );
 }
 
@@ -455,9 +541,11 @@ function EvidencePart({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <p className="m-0 mb-2.5 flex items-center gap-2 font-display text-[15px] font-semibold text-ink">
-        <EvidenceIcon kind={kind} size={12} />
+    <div className="amr-evidence-tile rounded-card border border-rule bg-paper p-4" data-kind={kind}>
+      <p className="m-0 mb-3 flex items-center gap-2 font-display text-[15px] font-semibold text-ink">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-raised">
+          <EvidenceIcon kind={kind} size={12} />
+        </span>
         {title}
       </p>
       {children}
@@ -506,7 +594,7 @@ function ExistingUseBody({ use, name }: { use: ExistingUse | undefined; name: st
             <p className="m-0 text-[12px] text-muted">Approved for</p>
             <ul className="m-0 mt-1.5 flex list-none flex-wrap gap-1.5 p-0">
               {use.indications.slice(0, 16).map((i) => (
-                <li key={i} className="rounded-card border border-rule bg-paper px-2 py-1 text-[13px] text-ink">
+                <li key={i} className="rounded-full border border-clinical/40 bg-paper px-3 py-1 text-[13px] text-ink">
                   {i.charAt(0).toUpperCase() + i.slice(1)}
                 </li>
               ))}

@@ -123,7 +123,14 @@ async function createSupabaseDriver(): Promise<Driver> {
     // Honoured by postgres.js at runtime (src/index.js) but absent from its
     // 3.4 type definitions, hence the spread.
     ...({ max_pipeline: 0 } as object),
-    idle_timeout: 20,
+    /*
+      How long an idle connection is kept. At 20 seconds, any pause longer than
+      that closed the connection, and the next page paid a fresh TLS and auth
+      handshake to the pooler (measured from India to Sydney: 2.6 s instead of
+      0.35 s). Five minutes keeps a connection warm between ordinary reads; the
+      pool is still capped at ten, far below the pooler's per-client limit.
+    */
+    idle_timeout: 300,
     // The production tables live in the `amr` schema, but the queries are
     // written unqualified so that the same statement runs against the research
     // SQLite file. Setting the search path here is what keeps that true.
@@ -301,6 +308,21 @@ const cachedRead = unstable_cache(
   ["amr-read-v2"],
   { revalidate: READ_CACHE_SECONDS },
 );
+
+/**
+ * Open the whole connection pool ahead of traffic.
+ *
+ * A page issues its reads at once, and on a cold cache each concurrent read
+ * opens its own connection, paying the pooler handshake (about 2.5 s from
+ * this machine) in parallel. Running the same number of trivial reads at
+ * start-up does that once, before anyone is waiting. Called from
+ * `instrumentation.ts`; failures are ignored.
+ */
+export async function warmPool(connections = 10): Promise<void> {
+  if (dataSource() === "sqlite") return;
+  const d = await driver();
+  await Promise.all(Array.from({ length: connections }, () => d.all("select 1", []).catch(() => [])));
+}
 
 /** Run a query and return every row, typed by the caller. */
 export async function query<T>(sql: string, params: Params = []): Promise<T[]> {

@@ -11,7 +11,10 @@ import {
   StudyList,
   STUDY_NOTE,
 } from "@/components/investigate";
+import { StudiesToggle } from "@/components/investigate/StudiesToggle";
+import { StudyTimeline } from "@/components/investigate/StudyTimeline";
 import { Page } from "@/components/primitives";
+import { OrganismCell } from "@/components/story/diagrams";
 import { medicineName } from "@/lib/format";
 import { getPathogens } from "@/lib/queries/core";
 import { getRepurposingCandidates, getRepurposingSummary, type EvidenceFilter } from "@/lib/queries/repurposing";
@@ -23,6 +26,7 @@ import {
   getMedicinesWithStudies,
   getStudies,
   resolveMedicine,
+  getStudyTimeline,
 } from "@/lib/queries/investigate";
 import { DISCOVERY_THRESHOLD_TEXT, matchModelledPathogen, NO_MODEL_NOTICE } from "@/lib/science";
 import { isPathogenKey, type PathogenKey } from "@/lib/types";
@@ -120,7 +124,7 @@ async function ConditionView({ condition, params }: { condition: string; params:
   const terms = conditionTerms(condition, pathogenKey);
   const path = "/investigate";
 
-  const [pathogens, byStudies, byLab, candidates, studies] = await Promise.all([
+  const [pathogens, byStudies, byLab, candidates, studies, timeline] = await Promise.all([
     getPathogens(),
     getMedicinesWithStudies(terms),
     pathogenKey ? getMedicinesWithLabRecords(pathogenKey) : Promise.resolve([]),
@@ -132,6 +136,7 @@ async function ConditionView({ condition, params }: { condition: string; params:
         })
       : Promise.resolve(null),
     getStudies({ terms, page: numberParam(params, "sp") ?? 1 }),
+    getStudyTimeline(terms),
   ]);
 
   const pathogen = pathogenKey ? pathogens.find((p) => p.key === pathogenKey) ?? null : null;
@@ -140,16 +145,39 @@ async function ConditionView({ condition, params }: { condition: string; params:
 
   return (
     <Page>
-      <h1 className="m-0 font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
-        {condition}
-      </h1>
+      <div className="flex items-center gap-5">
+        {pathogen ? <OrganismCell pathogen={pathogen.key} size={72} /> : null}
+        <div className="min-w-0">
+          <h1 className="m-0 font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
+            {condition}
+          </h1>
+          {pathogen ? (
+            <p className="m-0 mt-3 inline-flex flex-wrap items-center gap-2 rounded-full border border-rule bg-raised py-1 pl-3 pr-3.5 text-[13px] text-ink-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Supported pathogen</span>
+              <strong className="font-display font-semibold text-ink">{pathogen.label}</strong>
+              <span className="italic text-muted">{pathogen.fullName}</span>
+            </p>
+          ) : null}
+        </div>
+      </div>
 
       {pathogen ? (
-        <p className="m-0 mt-4 text-[15px] text-ink-2">
-          Supported pathogen:{" "}
-          <strong className="font-display font-semibold text-ink">{pathogen.label}</strong>{" "}
-          <span className="italic text-muted">({pathogen.fullName})</span>
-        </p>
+        <nav aria-label="On this page" className="mt-6 flex flex-wrap gap-2">
+          <a href="#documented" className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-rule bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
+            <EvidenceIcon kind="clinical" size={10} />
+            <span className="font-mono tabular-nums text-ink">{n(byStudies.length)}</span> documented in registered studies
+          </a>
+          <a href="#documented" className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-rule bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
+            <EvidenceIcon kind="experimental" size={10} />
+            <span className="font-mono tabular-nums text-ink">{n(byLab.length)}</span> with laboratory records
+          </a>
+          {candidates ? (
+            <a href="#candidates" className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-computational bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
+              <EvidenceIcon kind="computational" size={10} />
+              <span className="font-mono tabular-nums text-computational">{n(candidates.total)}</span> more to investigate
+            </a>
+          ) : null}
+        </nav>
       ) : (
         <div role="note" className="mt-5 max-w-[72ch] rounded-card border border-rule bg-raised p-4">
           <p className="m-0 flex items-start gap-2.5 text-[14px] leading-relaxed text-ink">
@@ -237,14 +265,22 @@ async function ConditionView({ condition, params }: { condition: string; params:
 
       <section id="studies" className="mt-12 scroll-mt-24">
         <SectionHead title="Registered studies" note={STUDY_NOTE} />
-        <StudyList
-          data={studies}
-          path={path}
-          params={params}
-          anchor="studies"
-          pageParam="sp"
-          empty="No registered study in this dataset lists this condition. That is no evidence found, not evidence of no effect."
-        />
+        {studies.total > 0 ? (
+          <div className="mb-4 flex flex-wrap items-center gap-2.5">
+            <StudiesToggle target="condition-studies" total={studies.total} />
+          </div>
+        ) : null}
+        <div id="condition-studies">
+          <StudyTimeline data={timeline} total={studies.total} />
+          <StudyList
+            data={studies}
+            path={path}
+            params={params}
+            anchor="studies"
+            pageParam="sp"
+            empty="No registered study in this dataset lists this condition. That is no evidence found, not evidence of no effect."
+          />
+        </div>
       </section>
 
       <div className="mt-12">
@@ -311,10 +347,15 @@ async function PathogenView({ pathogenKey, params }: { pathogenKey: PathogenKey;
       <p className="m-0 text-[13px] text-muted">
         <Link href="/dashboard">Dashboard</Link> <span aria-hidden="true">/</span> {label}
       </p>
-      <h1 className="m-0 mt-3 font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
-        Repurposing candidates for {label}
-      </h1>
-      {pathogen ? <p className="m-0 mt-2 text-[15px] italic text-muted">{pathogen.fullName}</p> : null}
+      <div className="mt-3 flex items-center gap-5">
+        <OrganismCell pathogen={pathogenKey} size={72} />
+        <div className="min-w-0">
+          <h1 className="m-0 font-display text-[clamp(30px,4.4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] text-ink">
+            Repurposing candidates for {label}
+          </h1>
+          {pathogen ? <p className="m-0 mt-2 text-[15px] italic text-muted">{pathogen.fullName}</p> : null}
+        </div>
+      </div>
 
       <p className="m-0 mt-5 max-w-[70ch] text-[15px] leading-relaxed text-ink-2">
         Approved medicines with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT} against {label}, leaving
@@ -323,7 +364,7 @@ async function PathogenView({ pathogenKey, params }: { pathogenKey: PathogenKey;
       </p>
 
       {counts ? (
-        <dl className="m-0 mt-6 flex flex-wrap gap-x-8 gap-y-3">
+        <dl className="m-0 mt-6 flex flex-wrap gap-2.5">
           <Count label={`AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT}`} value={n(counts.withActivity)} />
           <Count label="Existing antibacterials set aside" value={n(counts.existingAntibacterials)} />
           <Count label="Needing review" value={n(counts.needsReview)} />
@@ -340,13 +381,13 @@ async function PathogenView({ pathogenKey, params }: { pathogenKey: PathogenKey;
           >
             <input type="hidden" name="pathogen" value={pathogenKey} />
             <Field label="Medicine name">
-              <input name="q" defaultValue={name} placeholder="Any medicine" className="min-h-11 w-full min-w-0 rounded-card border border-rule-strong bg-pure px-3 text-[13px] text-ink" />
+              <input name="q" defaultValue={name} placeholder="Any medicine" className="amr-input min-h-11 w-full min-w-0 rounded-full border border-rule-strong bg-pure px-4 text-[13px] text-ink" />
             </Field>
             <Field label="Existing use">
-              <input name="use" defaultValue={use} placeholder="e.g. depression" className="min-h-11 w-full min-w-0 rounded-card border border-rule-strong bg-pure px-3 text-[13px] text-ink" />
+              <input name="use" defaultValue={use} placeholder="e.g. depression" className="amr-input min-h-11 w-full min-w-0 rounded-full border border-rule-strong bg-pure px-4 text-[13px] text-ink" />
             </Field>
             <Field label="AI-predicted activity">
-              <select name="range" defaultValue={range.value} className="min-h-11 w-full min-w-0 rounded-card border border-rule-strong bg-pure px-3 text-[13px] text-ink">
+              <select name="range" defaultValue={range.value} className="amr-input min-h-11 w-full min-w-0 rounded-full border border-rule-strong bg-pure px-4 text-[13px] text-ink">
                 {RANGES.map((r) => (
                   <option key={r.value} value={r.value}>
                     {r.label}
@@ -355,7 +396,7 @@ async function PathogenView({ pathogenKey, params }: { pathogenKey: PathogenKey;
               </select>
             </Field>
             <Field label="Evidence">
-              <select name="evidence" defaultValue={evidence ?? ""} className="min-h-11 w-full min-w-0 rounded-card border border-rule-strong bg-pure px-3 text-[13px] text-ink">
+              <select name="evidence" defaultValue={evidence ?? ""} className="amr-input min-h-11 w-full min-w-0 rounded-full border border-rule-strong bg-pure px-4 text-[13px] text-ink">
                 {EVIDENCE.map((e) => (
                   <option key={e.value} value={e.value}>
                     {e.label}
@@ -420,10 +461,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Count({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div>
+    <div className={`rounded-full border bg-raised px-4 py-2 ${accent ? "border-computational" : "border-rule"}`}>
       <dt className="text-[12px] text-muted">{label}</dt>
       <dd
-        className="m-0 mt-0.5 font-mono text-[22px] font-medium tabular-nums"
+        className="m-0 mt-0.5 font-mono text-[20px] font-medium tabular-nums leading-tight"
         style={{ color: accent ? "var(--color-computational)" : "var(--color-ink)" }}
       >
         {value}

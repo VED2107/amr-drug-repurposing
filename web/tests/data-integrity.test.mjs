@@ -256,9 +256,14 @@ async function csv(route) {
   const res = await fetch(`${BASE_URL}${route}`, { signal: AbortSignal.timeout(PAGE_DEADLINE_MS) });
   assert.equal(res.status, 200, `${route} should download`);
   assert.match(res.headers.get("content-type") ?? "", /text\/csv/);
-  assert.match(res.headers.get("content-disposition") ?? "", /attachment/);
+  const disposition = res.headers.get("content-disposition") ?? "";
+  assert.match(disposition, /attachment/);
   const text = await res.text();
   const [header, ...rows] = parseCsv(text);
+  // The file name says what it is: project, population, row count, date.
+  const name = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "";
+  assert.match(name, /^smart-screening_[a-z-]+_\d+-rows_\d{4}-\d{2}-\d{2}\.csv$/, `${route} file name: ${name}`);
+  assert.ok(name.includes(`_${rows.length}-rows_`), "the name carries the true row count");
   return { text, header, rows };
 }
 
@@ -496,6 +501,90 @@ describe("retired sections stay retired", () => {
   }
 });
 
+describe("the overview carries the presentation's figures and sections", () => {
+  it("shows the broader molecular dataset apart from the medicine library", async () => {
+    const [row] = await sql.unsafe(`select count(*) as n from molecules where is_valid`);
+    const page = await html("/");
+    assert.ok(page.includes(`${Math.floor(Number(row.n) / 1000)}K`), "the 20K figure is shown");
+    assert.ok(page.includes(grouped(row.n)), "with its exact count");
+    assert.ok(/Broader molecular dataset/.test(page) && /Approved-medicine library/.test(page));
+  });
+
+  it("explains how the site works with all five stages and the step not taken", async () => {
+    const page = await html("/");
+    assert.ok(/id="how-it-works"/.test(page));
+    for (const stage of ["Collect", "Represent", "Predict", "Check fit", "Check evidence"]) {
+      assert.ok(page.includes(`>${stage}<`), `stage ${stage}`);
+    }
+    for (const step of ["Prediction", "Structural hypothesis", "Existing evidence"]) {
+      assert.ok(page.includes(step), step);
+    }
+    assert.ok(/Not performed in this project/i.test(page), "laboratory testing is marked as not performed");
+  });
+
+  it("presents exactly the four modelled species", async () => {
+    const page = await html("/");
+    // One tab per species, each naming the resistance feature slide 5 gives it.
+    const tabs = page.match(/role="tab"/g) ?? [];
+    assert.equal(tabs.length, 4, "exactly four species");
+    for (const label of ["MRSA", "E. coli", "K. pneumoniae", "M. tuberculosis"]) {
+      assert.ok(page.includes(label), label);
+    }
+    for (const feature of [
+      "Altered PBP2a target",
+      "Outer membrane + drug efflux",
+      "Carbapenemase enzymes",
+      "Waxy mycolic-acid-rich cell envelope",
+    ]) {
+      assert.ok(page.includes(feature), feature);
+    }
+  });
+
+  for (const route of ["/", "/dashboard"]) {
+    it(`${route} uses neutral labels for the pathogen list`, async () => {
+      const page = await html(route);
+      assert.ok(!/AI[- ]supported pathogens|target pathogen|What is this site trying to tell you/i.test(page));
+    });
+  }
+
+  it("the dashboard names the four species 'Pathogen coverage'", async () => {
+    assert.ok(/Pathogen coverage/.test(await html("/dashboard")));
+  });
+});
+
+describe("the full method page", () => {
+  it("is linked from the overview's training section", async () => {
+    assert.ok(/href="\/methods"/.test(await html("/")));
+  });
+
+  it("names its sources, explains training and reading, and keeps the limits", async () => {
+    const page = readable(await html("/methods"));
+    for (const source of ["ChEMBL", "FDA Orange Book", "ClinicalTrials.gov", "Protein Data Bank"]) {
+      assert.ok(page.includes(source), source);
+    }
+    assert.ok(/How to read a result/.test(page) && /How the training worked/.test(page));
+    assert.ok(/no new patient or laboratory experiments were performed/i.test(page));
+    assert.ok(/never added together/.test(page), "the two populations are kept apart");
+  });
+
+  it("shows no internal identifiers or metrics", async () => {
+    const res = await fetch(`${BASE_URL}/methods`, { signal: AbortSignal.timeout(PAGE_DEADLINE_MS) });
+    const visible = (await res.text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ");
+    for (const pattern of [/RF-(mrsa|ecoli|kpneumoniae|mtb)-v\d/, /DS-20\d{6}/, /PR-AUC/, /Supabase/i, /Docker/]) {
+      assert.ok(!pattern.test(visible), `must not show ${pattern}`);
+    }
+  });
+});
+
+describe("registered studies are shown from the stored record", () => {
+  it("lists registry ids as text, with the record opening in place", async () => {
+    const page = await html("/dashboard");
+    assert.ok(/NCT\d{8}/.test(page), "registry ids are shown");
+    assert.ok(!/href="https:\/\/clinicaltrials\.gov\/study\//.test(page), "no outbound registry links");
+    assert.ok(/Registered record/.test(page), "the stored record can be opened");
+  });
+});
+
 describe("the overview explains, and discovery waits for a search", () => {
   it("the overview shows the live counts in plain words", async () => {
     const floor = discoveryThreshold();
@@ -508,7 +597,10 @@ describe("the overview explains, and discovery waits for a search", () => {
     const page = await html("/");
     await assertCurrent("/", page);
     assert.ok(page.includes(grouped(row.medicines)) && page.includes(grouped(row.candidates)));
-    assert.ok(/What is drug repurposing\?/.test(page) && /How to read a result/.test(page));
+    assert.ok(/What is drug repurposing\?/.test(page), "the overview explains repurposing");
+    // How to read a result moved to the full method page, linked from here.
+    assert.ok(/href="\/methods"/.test(page) && /how to read a result/i.test(page), "the overview links to it");
+    assert.ok(/How to read a result/.test(await html("/methods")), "the method page explains it");
   });
 
   for (const route of ["/", "/dashboard"]) {
@@ -551,13 +643,18 @@ describe("documented evidence links to its source", () => {
     assert.ok(page.includes(`rcsb.org/structure/${row.pdb_id}`));
   });
 
-  it("every registered study links to its registry record", async () => {
+  // Registry pages render in the browser and failed to show the record for
+  // readers, so each study shows its registry id as text and its stored record
+  // in place, instead of linking out.
+  it("every registered study shows its registry id and stored record", async () => {
     const page = await html("/investigate/XMAYWYJOQHXEEK-ZEQKJWHPSA-N");
-    const [n] = await sql`
-      select count(distinct nct_id) as n from clinical_trials
+    const ids = await sql`
+      select distinct nct_id from clinical_trials
        where molecule_id = 'XMAYWYJOQHXEEK-ZEQKJWHPSA-N'`;
-    const links = page.match(/href="https:\/\/clinicaltrials\.gov\/[^"]+"/g) ?? [];
-    assert.equal(links.length, Number(n.n), "one registry link per study");
+    for (const { nct_id } of ids) assert.ok(page.includes(nct_id), `${nct_id} is shown`);
+    const records = page.match(/>Registered record</g) ?? [];
+    assert.equal(records.length, ids.length, "one stored record per study");
+    assert.equal((page.match(/href="https:\/\/clinicaltrials\.gov\/[^"]+"/g) ?? []).length, 0, "no outbound registry links");
   });
 });
 

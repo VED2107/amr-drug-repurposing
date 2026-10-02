@@ -1,0 +1,1146 @@
+/* ------------------------------------------------------------------
+   The two overview sections drawn from the presentation:
+   "How this site works" (slide 6) and the four bacteria (slide 5).
+   Everything else on the site keeps globals.css alone.
+
+   Motion is one authored moment per figure and always optional. With
+   reduced motion nothing below moves: the drawings are simply complete.
+   ------------------------------------------------------------------ */
+
+:root {
+  --amr-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --amr-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@keyframes amr-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.35;
+  }
+}
+
+/* ===== How this site works: the process diagram ===================== */
+
+.amr-glyph {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 84px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-card);
+  background: var(--color-raised);
+  transition:
+    border-color 220ms ease,
+    background-color 220ms ease;
+}
+.amr-node-lab .amr-glyph {
+  border: 1px dashed var(--color-ink-2);
+  background: repeating-linear-gradient(-45deg, var(--color-paper) 0 7px, var(--color-sunken) 7px 8px);
+}
+
+/* Narrow screens: a vertical spine, glyph on the left, text beside it. */
+.amr-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 18px;
+  padding-bottom: 32px;
+}
+.amr-node .amr-glyph {
+  height: 72px;
+  padding: 6px 10px;
+}
+.amr-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 47px;
+  top: 72px;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--color-ink);
+}
+.amr-node[data-stage="5"]::after {
+  background: repeating-linear-gradient(var(--color-ink) 0 5px, transparent 5px 9px);
+}
+.amr-track,
+.amr-track-dashed,
+.amr-tracer {
+  display: none;
+}
+
+/* Wide screens: six columns on one line. */
+@media (min-width: 1024px) {
+  .amr-node {
+    display: block;
+    padding: 0 10px;
+  }
+  .amr-node .amr-glyph {
+    height: 84px;
+    padding: 8px 14px;
+  }
+  .amr-node::after {
+    display: none;
+  }
+  .amr-node-text {
+    margin-top: 18px;
+  }
+  .amr-track,
+  .amr-track-dashed {
+    display: block;
+    position: absolute;
+    top: 41px;
+    height: 1.5px;
+    z-index: 0;
+  }
+  .amr-track {
+    left: calc(100% / 12);
+    width: calc(100% * 4 / 6);
+    background: var(--color-ink);
+    transform-origin: left center;
+  }
+  .amr-track-dashed {
+    left: calc(100% * 9 / 12);
+    width: calc(100% / 6);
+    background: repeating-linear-gradient(90deg, var(--color-ink) 0 6px, transparent 6px 11px);
+  }
+}
+
+/* The yield chips light with their stage. */
+.amr-yield {
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-node:hover .amr-glyph {
+    border-color: var(--color-ink);
+    background-color: var(--color-pure);
+  }
+  .amr-node-lab:hover .amr-glyph {
+    background: repeating-linear-gradient(-45deg, var(--color-pure) 0 7px, var(--color-sunken) 7px 8px);
+  }
+  .amr-process:has([data-stage="3"]:hover) [data-yield="3"],
+  .amr-process:has([data-stage="4"]:hover) [data-yield="4"] {
+    border-color: var(--color-computational);
+    background-color: #eeedfa;
+  }
+  .amr-process:has([data-stage="5"]:hover) [data-yield="5"] {
+    border-color: var(--color-clinical);
+    background-color: #e9f4ef;
+  }
+  .amr-process:has([data-stage="6"]:hover) .amr-yield-lab {
+    background-color: var(--color-sunken);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (min-width: 1024px) {
+  /* The line runs out from the first stage, then a tracer travels it and
+     each stage it reaches is outlined in ink. It stops at stage 05: the
+     project went no further. */
+  .amr-tracer {
+    display: block;
+    position: absolute;
+    z-index: 2;
+    top: 36px;
+    left: calc(100% / 12);
+    width: 11px;
+    height: 11px;
+    margin-left: -5.5px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 4px var(--color-paper);
+    opacity: 0;
+  }
+  .amr-process[data-in] .amr-tracer {
+    animation: amr-trace 2600ms linear 500ms forwards;
+  }
+  @keyframes amr-trace {
+    0% {
+      left: calc(100% / 12);
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    100% {
+      left: calc(100% * 5 / 6);
+      opacity: 1;
+    }
+  }
+  .amr-track {
+    transition: transform 700ms var(--amr-ease-out);
+  }
+  .amr-process[data-armed]:not([data-in]) .amr-track {
+    transform: scaleX(0);
+  }
+  .amr-process[data-in] .amr-node:not(.amr-node-lab) .amr-glyph {
+    animation: amr-reach 600ms ease forwards;
+    animation-delay: var(--t, 0ms);
+  }
+  @keyframes amr-reach {
+    to {
+      border-color: var(--color-ink);
+    }
+  }
+}
+
+/* Each drawing reacts as the tracer reaches its stage (--t): the records
+   arrive, the fingerprint fills, the estimate moves past the filter, the
+   molecule seats in its pocket, the registry record writes itself. The
+   laboratory step does nothing: it was not performed. Shown on every width,
+   since narrow screens have the drawings without the tracer. */
+@media (prefers-reduced-motion: no-preference) {
+  .amr-process :is(.amr-g-pop, .amr-g-bit, .amr-g-slide, .amr-g-grow, .amr-dock) {
+    transform-box: fill-box;
+  }
+  .amr-process[data-in] .amr-g-pop {
+    transform-origin: center;
+    animation: amr-g-pop 380ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--t, 0ms) + var(--k, 0) * 110ms);
+  }
+  .amr-process[data-in] .amr-g-bit {
+    animation: amr-g-fade 260ms ease-out both;
+    animation-delay: calc(var(--t, 0ms) + var(--k, 0) * 35ms);
+  }
+  .amr-process[data-in] .amr-g-slide {
+    animation: amr-g-slide 820ms var(--amr-ease-in-out) both;
+    animation-delay: var(--t, 0ms);
+  }
+  .amr-process[data-in] .amr-g-grow {
+    transform-origin: left center;
+    animation: amr-g-grow 420ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--t, 0ms) + var(--k, 0) * 120ms);
+  }
+  .amr-process[data-in] .amr-dock {
+    animation: amr-g-dock 760ms var(--amr-ease-out) both;
+    animation-delay: var(--t, 0ms);
+  }
+  @keyframes amr-g-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+  }
+  @keyframes amr-g-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes amr-g-slide {
+    from {
+      transform: translateX(-40px);
+    }
+  }
+  @keyframes amr-g-grow {
+    from {
+      transform: scaleX(0);
+    }
+  }
+  @keyframes amr-g-dock {
+    from {
+      transform: translateY(-18px);
+      opacity: 0.4;
+    }
+  }
+}
+
+/* ===== The four bacteria: the bench ================================= */
+
+.amr-bench-tab {
+  border: 0;
+  cursor: pointer;
+  box-shadow: inset 0 -2px 0 transparent;
+  transition:
+    background-color 180ms ease,
+    box-shadow 220ms var(--amr-ease-out);
+}
+.amr-bench-tab[aria-selected="true"] {
+  background-color: var(--color-pure);
+  box-shadow: inset 0 -2px 0 var(--color-ink);
+}
+.amr-bench-tab:active {
+  background-color: var(--color-sunken);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-bench-tab:not([aria-selected="true"]):hover {
+    background-color: var(--color-pure);
+  }
+}
+.amr-bench-tab .amr-cell .amr-mark {
+  transition: opacity 200ms ease;
+}
+
+.amr-marker circle,
+.amr-marker text {
+  transition:
+    fill 160ms ease,
+    stroke 160ms ease;
+}
+.amr-marker[data-hot] circle {
+  fill: var(--color-accent);
+}
+.amr-marker[data-hot] text {
+  fill: var(--color-raised);
+}
+.amr-note {
+  border: 0;
+  background: transparent;
+  cursor: default;
+  transition: background-color 160ms ease;
+}
+.amr-note[data-hot] {
+  background-color: var(--color-paper);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The resistance feature flickers once when a species is chosen, so the
+     eye finds it before the drug arrives. */
+  .amr-bench-svg .amr-feature {
+    animation: amr-pulse 900ms ease-in-out 120ms 1;
+  }
+  .amr-bench-svg {
+    animation: amr-settle 360ms var(--amr-ease-out);
+  }
+  @keyframes amr-settle {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+}
+
+/* ===== A stored registry record, opened in place ==================== */
+
+.amr-record > summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 28px;
+}
+.amr-record > summary::-webkit-details-marker {
+  display: none;
+}
+.amr-record > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 160ms var(--amr-ease-out);
+}
+.amr-record[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+/* ===== The opening figures ========================================== */
+
+/* The unit fields fill in on first paint: the honeycomb sweeps in
+   diagonally, the capsules drop into a row. */
+.amr-unit {
+  transition:
+    stroke 200ms ease,
+    opacity 200ms ease,
+    transform 240ms var(--amr-ease-out);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-bracket {
+    transform-origin: left center;
+    animation: amr-bracket-in 520ms var(--amr-ease-out) 700ms both;
+  }
+  @keyframes amr-bracket-in {
+    from {
+      transform: scaleX(0);
+    }
+  }
+  .amr-units .amr-unit {
+    animation: amr-unit-in 480ms var(--amr-ease-out) both;
+    animation-delay: calc((var(--r, 0) + var(--c, 0)) * 18ms + 150ms);
+  }
+  @keyframes amr-unit-in {
+    from {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+  }
+}
+
+/* Pointing at a figure lights the units it counts. */
+@media (hover: hover) and (pointer: fine) {
+  .amr-key-molecules:hover .amr-unit {
+    stroke: var(--color-ink-2);
+  }
+  .amr-pop:has(.amr-key-library:hover) .amr-units-pill .amr-unit:not(.is-marked) rect {
+    fill: var(--color-sunken);
+  }
+  .amr-pop:has(.amr-key-candidates:hover) .amr-units-pill .amr-unit:not(.is-marked) {
+    opacity: 0.25;
+  }
+  .amr-pop:has(.amr-key-candidates:hover) .amr-unit.is-marked {
+    transform: translateY(-2px);
+  }
+  .amr-key-candidates:hover .amr-bracket {
+    border-bottom-width: 2px;
+  }
+}
+
+/* ===== Dashboard: the breaking pill ================================= */
+
+.amr-pill {
+  display: block;
+  height: 14px;
+  min-width: 6px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.amr-pill-ink {
+  background: var(--color-raised);
+  border-color: var(--color-ink);
+  /* A capsule's seam, so the first bar reads as a medicine. */
+  background-image: linear-gradient(90deg, transparent calc(50% - 0.5px), var(--color-ink) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+.amr-pill-c1 {
+  background: color-mix(in oklab, var(--color-computational) 32%, var(--color-raised));
+  border-color: var(--color-computational);
+}
+.amr-pill-c2 {
+  background: color-mix(in oklab, var(--color-computational) 62%, var(--color-raised));
+  border-color: var(--color-computational);
+}
+.amr-pill-c3 {
+  background: var(--color-computational);
+  border-color: var(--color-computational);
+}
+.amr-pill-grey {
+  background: var(--color-sunken);
+  border-color: var(--color-rule-strong);
+}
+.amr-pill-ochre {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.amr-pill-review {
+  background: transparent;
+  border: 1px dashed var(--color-ink-2);
+}
+.amr-piece {
+  width: 100%;
+  transform: translateY(5px) rotate(4deg);
+  transform-origin: left center;
+}
+.amr-breaks li:nth-child(n + 2) .amr-pill:not(.amr-piece) {
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+.amr-piece {
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Each row's piece snaps off after the bar is drawn. */
+  .amr-breaks .amr-pill:not(.amr-piece) {
+    transform-origin: left center;
+    animation: amr-pill-run 600ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--i, 0) * 220ms + 100ms);
+  }
+  .amr-breaks .amr-piece {
+    animation: amr-pill-snap 520ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--i, 0) * 220ms + 520ms);
+  }
+  @keyframes amr-pill-run {
+    from {
+      transform: scaleX(0);
+    }
+  }
+  @keyframes amr-pill-snap {
+    from {
+      transform: none;
+    }
+  }
+}
+
+/* ===== The mark ====================================================== */
+
+/* On load the capsule slides in and the ring turns into place beside it: the
+   medicine, then its structure. Pointing at the logo turns the ring once more
+   (a hexagon turned 60 degrees lands on itself, so it ends where it began). */
+.amr-mark-capsule,
+.amr-mark-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-mark-capsule {
+    animation: amr-mark-in 620ms cubic-bezier(0.23, 1, 0.32, 1) 200ms both;
+  }
+  .amr-mark-ring {
+    animation: amr-mark-turn 760ms cubic-bezier(0.23, 1, 0.32, 1) 380ms both;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    a:hover > .amr-mark-logo .amr-mark-ring {
+      animation: amr-mark-spin 700ms cubic-bezier(0.77, 0, 0.175, 1) both;
+    }
+  }
+  @keyframes amr-mark-in {
+    from {
+      transform: translateX(28px);
+      opacity: 0;
+    }
+  }
+  @keyframes amr-mark-turn {
+    from {
+      transform: rotate(-60deg) scale(0.7);
+      opacity: 0;
+    }
+  }
+  @keyframes amr-mark-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(60deg);
+    }
+  }
+}
+
+/* ===== Header: reading progress ================== */
+
+/* A hairline of ochre along the header's lower edge fills as the page is
+   read, and a soft shade settles under the header once the page scrolls.
+   (Its height never changes, so the page never shifts under it.) Both run on the
+   browser's scroll timeline (no scroll listeners); where scroll timelines are
+   unsupported the header simply stays as it is. */
+.amr-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+}
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .amr-progress {
+      animation: amr-progress linear both;
+      animation-timeline: scroll(root block);
+    }
+    .amr-header {
+      animation: amr-header-shade linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 120px;
+    }
+  }
+}
+@keyframes amr-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes amr-header-shade {
+  to {
+    box-shadow: 0 6px 18px -14px rgba(18, 19, 15, 0.35);
+  }
+}
+
+/* The way into the full method: the arrow travels on hover. */
+.amr-deeper {
+  transition: background-color 180ms ease;
+}
+.amr-deeper-arrow {
+  transition: transform 260ms var(--amr-ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-deeper:hover {
+    background-color: var(--color-pure);
+  }
+  .amr-deeper:hover .amr-deeper-arrow {
+    transform: translateX(6px);
+  }
+}
+
+/* Primary buttons lean a few pixels toward the pointer (ButtonPointer sets
+   the separate translate property, so the press scale still applies). */
+.amr-btn {
+  transition:
+    transform 120ms cubic-bezier(0.23, 1, 0.32, 1),
+    translate 240ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* ===== Hero chain ==================================================== */
+
+@media (prefers-reduced-motion: no-preference) {
+  .amr-hc-draw {
+    stroke-dasharray: 1;
+    animation: amr-hc-draw 700ms cubic-bezier(0.23, 1, 0.32, 1) both;
+    animation-delay: calc(var(--i, 0) * 160ms + 250ms);
+  }
+  .amr-hc-item {
+    animation: amr-g-fade 400ms ease-out both;
+    animation-delay: calc(var(--i, 0) * 160ms + 200ms);
+  }
+  .amr-hc-dot {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: amr-hc-pop 380ms cubic-bezier(0.23, 1, 0.32, 1) both;
+    animation-delay: calc(var(--i, 0) * 160ms + 700ms);
+  }
+  @keyframes amr-hc-draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes amr-hc-pop {
+    from {
+      transform: scale(0.3);
+      opacity: 0;
+    }
+  }
+}
+
+/* ===== The search capsule ============================================ */
+
+/* On wide screens the switch, the field and the submit cap sit in one
+   capsule; on narrow screens the switch sits above it. */
+.amr-search-field {
+  position: relative;
+  border: 1px solid var(--color-ink);
+  border-radius: 999px;
+  background: var(--color-pure);
+  padding: 4px 4px 4px 6px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 200ms ease;
+}
+.amr-search-field:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.14);
+}
+@media (min-width: 640px) {
+  .amr-search {
+    border: 1px solid var(--color-ink);
+    border-radius: 999px;
+    background: var(--color-pure);
+    padding: 4px;
+    transition:
+      border-color 160ms ease,
+      box-shadow 200ms ease;
+  }
+  .amr-search:focus-within {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.14);
+  }
+  .amr-search .amr-search-field {
+    border: 0;
+    box-shadow: none;
+    padding: 0 0 0 4px;
+    background: transparent;
+  }
+}
+/* The field itself carries no frame of its own inside the capsule. */
+.amr-search .amr-search-input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 46px;
+  font-size: 13px;
+}
+.amr-search-compact .amr-search-input {
+  min-height: 36px;
+  font-size: 12px;
+}
+
+/* The switch: an ink pill slides to the chosen side. */
+.amr-modes {
+  background: var(--color-sunken);
+  padding: 3px;
+}
+.amr-mode {
+  min-height: 40px;
+  padding: 0 1rem;
+  font-size: 13px;
+  color: var(--color-ink-2);
+  transition: color 200ms ease;
+}
+.amr-mode[aria-checked="true"] {
+  color: var(--color-paper);
+}
+.amr-modes-pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 999px;
+  background: var(--color-ink);
+  transform: translateX(calc(var(--at, 0) * 100%));
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+.amr-search-compact .amr-mode {
+  min-height: 32px;
+  padding: 0 0.75rem;
+  font-size: 12px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-mode[aria-checked="false"]:hover {
+    color: var(--color-ink);
+  }
+}
+
+/* Submit: the label, then a round ochre cap with a lens. */
+.amr-search-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 46px;
+  padding: 0 4px 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.amr-search-go:active {
+  transform: scale(0.97);
+}
+.amr-search-go-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  transition: transform 260ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.amr-search-compact .amr-search-go {
+  min-height: 36px;
+  padding-left: 0.8rem;
+}
+.amr-search-compact .amr-search-go-cap {
+  width: 30px;
+  height: 30px;
+}
+@media (max-width: 420px) {
+  .amr-search-go-label {
+    display: none;
+  }
+  .amr-search-go {
+    padding-left: 4px;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-search-go:hover .amr-search-go-cap {
+    transform: rotate(-12deg) scale(1.06);
+  }
+  .amr-example {
+    transition:
+      border-color 160ms ease,
+      color 160ms ease,
+      background-color 160ms ease;
+  }
+  .amr-example:hover {
+    border-color: var(--color-ink);
+    color: var(--color-ink);
+    background-color: var(--color-pure);
+  }
+}
+
+/* The capsule shows the focus ring, so the field inside draws none. */
+.amr-search .amr-search-input:focus-visible {
+  outline: none;
+}
+
+/* Downloads may wrap on narrow screens rather than run off them. */
+@media (max-width: 639.98px) {
+  .amr-download {
+    white-space: normal;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+    border-radius: 22px;
+  }
+}
+
+/* ===== Registered studies ============================================ */
+
+.amr-timeline-bar {
+  background: color-mix(in oklab, var(--color-clinical) 55%, var(--color-raised));
+  border-radius: 2px 2px 0 0;
+  transition: background-color 160ms ease;
+}
+.amr-timeline-bar[data-peak] {
+  background: var(--color-clinical);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-timeline-bar:hover {
+    background: var(--color-ink);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-timeline-bar {
+    transform-origin: bottom center;
+    animation: amr-rise 620ms cubic-bezier(0.23, 1, 0.32, 1) both;
+    animation-delay: calc(var(--i, 0) * 12ms + 100ms);
+  }
+  @keyframes amr-rise {
+    from {
+      transform: scaleY(0);
+    }
+  }
+}
+.amr-phase {
+  border: 1px solid var(--color-clinical);
+}
+.amr-phase[data-fill="full"] {
+  background: var(--color-clinical);
+}
+.amr-phase[data-fill="half"] {
+  background: linear-gradient(90deg, var(--color-clinical) 50%, transparent 50%);
+}
+.amr-phase[data-fill="empty"] {
+  border-color: var(--color-rule-strong);
+}
+.amr-status[data-status="done"] {
+  background: var(--color-clinical);
+}
+.amr-status[data-status="open"] {
+  background: transparent;
+  border: 1.5px solid var(--color-clinical);
+}
+.amr-status[data-status="stopped"] {
+  background: var(--color-accent);
+}
+.amr-status[data-status="unknown"] {
+  background: transparent;
+  border: 1px solid var(--color-faint);
+}
+
+/* ===== Header: brand chip and navigation switch ====================== */
+
+.amr-brand {
+  padding: 3px;
+  border: 1px solid transparent;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-brand:hover {
+    border-color: var(--color-rule-strong);
+    background-color: var(--color-raised);
+  }
+}
+/* The tile is drawn round in the header, so the mark reads as a capsule end. */
+.amr-brand .amr-mark-logo rect {
+  rx: 128;
+}
+
+.amr-navpill {
+  padding: 3px;
+  background: var(--color-sunken);
+}
+.amr-navpill-ink {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 999px;
+  background: var(--color-ink);
+  transform: translateX(calc(var(--at, 0) * 100%));
+  transition:
+    transform 340ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 200ms ease;
+}
+.amr-navpill[data-none] .amr-navpill-ink {
+  opacity: 0;
+}
+.amr-navlink {
+  color: var(--color-ink-2);
+  transition: color 220ms ease;
+}
+.amr-navlink[aria-current="page"] {
+  color: var(--color-paper);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-navlink:not([aria-current="page"]):hover {
+    color: var(--color-ink);
+  }
+}
+.amr-navlink:active {
+  transform: scale(0.97);
+}
+
+/* ===== The method page ================================================ */
+
+.amr-glyph-slot svg {
+  height: 44px !important;
+  width: auto;
+}
+.amr-rail-link {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.amr-rail-link[aria-current="true"] {
+  background: var(--color-raised);
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px var(--color-rule);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-rail-link:not([aria-current="true"]):hover {
+    color: var(--color-ink);
+  }
+  .amr-source {
+    transition: background-color 180ms ease;
+  }
+  .amr-source:hover {
+    background-color: var(--color-pure);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-journey-step {
+    animation: amr-g-fade 480ms ease-out both;
+    animation-delay: calc(var(--i, 0) * 120ms + 120ms);
+  }
+}
+
+/* The footer credit: a quiet capsule; its links answer the pointer. */
+.amr-credit-link {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.amr-credit-link:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-credit-link:hover {
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+  }
+}
+
+/* Footer links: a capsule that fills on hover, its arrow stepping forward. */
+.amr-foot-link {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+.amr-foot-arrow {
+  opacity: 0;
+  transform: translateX(-4px);
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-foot-link:hover {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+  }
+  .amr-foot-link:hover .amr-foot-arrow {
+    opacity: 1;
+    transform: none;
+  }
+}
+.amr-foot-link:focus-visible .amr-foot-arrow {
+  opacity: 1;
+  transform: none;
+}
+
+/* Repurposing cards: a hairline joins the first use to the later one, and
+   inks in on hover. */
+.amr-track-v::before {
+  content: "";
+  position: absolute;
+  left: 6.5px;
+  top: 16px;
+  height: calc(100% - 52px);
+  width: 1px;
+  background: var(--color-rule-strong);
+  transform-origin: top center;
+  transition: background-color 220ms ease;
+}
+.amr-repurpose {
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-repurpose:hover {
+    border-color: var(--color-ink-2);
+    background-color: var(--color-pure);
+  }
+  .amr-repurpose:hover .amr-track-v::before {
+    background: var(--color-accent);
+  }
+}
+
+/* Registered studies can be hidden from the filter row. */
+.amr-toggle-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 200ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.amr-toggle-chevron[data-open] {
+  transform: translateY(-2px) rotate(45deg);
+}
+
+/* ===== Filter capsules (registered studies) ========================== */
+
+.amr-filter {
+  position: relative;
+  border: 1px solid var(--color-ink);
+  border-radius: 999px;
+  background: var(--color-pure);
+  padding: 3px 3px 3px 6px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 200ms ease;
+}
+.amr-filter:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.14);
+}
+.amr-filter .amr-search-input {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 40px;
+  font-size: 12px;
+}
+.amr-filter .amr-search-input:focus-visible {
+  outline: none;
+}
+.amr-search-go-sm {
+  min-height: 38px;
+  padding-left: 0.85rem;
+  font-size: 12px;
+}
+.amr-search-go-sm .amr-search-go-cap {
+  width: 32px;
+  height: 32px;
+}
+.amr-select-chevron {
+  pointer-events: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 12px 4px -24px;
+  border-right: 1.5px solid var(--color-ink-2);
+  border-bottom: 1.5px solid var(--color-ink-2);
+  transform: rotate(45deg);
+}
+
+/* ===== Result pages ==================================================== */
+
+.amr-jump {
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-jump:hover {
+    border-color: var(--color-ink);
+    background-color: var(--color-pure);
+  }
+}
+.amr-input {
+  transition:
+    border-color 160ms ease,
+    box-shadow 200ms ease;
+}
+.amr-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.14);
+}
+select.amr-input {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-ink-2) 50%), linear-gradient(135deg, var(--color-ink-2) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2.25rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-activity-bar {
+    transform-origin: left center;
+    animation: amr-pill-run 800ms cubic-bezier(0.23, 1, 0.32, 1) 150ms both;
+  }
+}
+
+/* Species switch on the medicine page: capsules with each species' cell. */
+.amr-species-link {
+  color: var(--color-ink-2);
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+}
+.amr-species-link[aria-current="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+.amr-species-link:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-species-link:not([aria-current="true"]):hover {
+    background: var(--color-raised);
+    color: var(--color-ink);
+  }
+}
+
+/* Pagination: round previous / next buttons around the page position. */
+.amr-page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  text-decoration: none;
+  transition:
+    background-color 180ms ease,
+    transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.amr-page-btn:active {
+  transform: scale(0.94);
+}
+.amr-page-btn[data-disabled] {
+  background: var(--color-sunken);
+  color: var(--color-fainter);
+  cursor: not-allowed;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-page-btn:not([data-disabled]):hover {
+    background: var(--color-accent);
+  }
+}

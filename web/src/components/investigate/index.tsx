@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OrganismCell } from "@/components/story/diagrams";
 import type { ReactNode } from "react";
 
 import { Pagination } from "@/components/data";
@@ -16,7 +17,6 @@ import {
   mayShowProbability,
 } from "@/lib/science";
 import type { PathogenKey } from "@/lib/types";
-import { trialRecord } from "@/lib/links";
 import type { RawSearchParams } from "@/lib/url";
 
 import { EvidenceIcon, type EvidenceKind } from "./icons";
@@ -133,7 +133,10 @@ export function ActivityRow({
 
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 border-b border-rule-soft py-4 first:pt-0 last:border-b-0 last:pb-0">
-      <span className="font-display text-[16px] font-semibold text-ink">{pathogenLabel}</span>
+      <span className="flex items-center gap-3 font-display text-[16px] font-semibold text-ink">
+        <OrganismCell pathogen={pathogenKey} size={30} />
+        {pathogenLabel}
+      </span>
       {shown ? (
         <span className="text-right">
           <span
@@ -148,18 +151,25 @@ export function ActivityRow({
         <span className="text-right text-[13px] text-muted">No prediction available</span>
       )}
       {shown ? (
-        <span aria-hidden="true" className="relative col-span-2 block h-1 rounded-full bg-sunken">
+        <span aria-hidden="true" className="amr-activity relative col-span-2 block h-[10px]">
+          <span className="absolute inset-x-0 top-1/2 block h-px bg-rule" />
           <span
-            className="absolute inset-y-0 left-0 block rounded-full"
+            className="amr-activity-bar absolute inset-y-0 left-0 block rounded-full"
             style={{
               width: `${(fraction * 100).toFixed(2)}%`,
               background: meets ? "var(--color-computational)" : "var(--color-faint)",
             }}
           />
           <span
-            className="absolute -top-1 block h-3 w-px bg-ink-2"
+            className="absolute -top-[5px] block h-5 w-px bg-accent"
             style={{ left: `${DISCOVERY_THRESHOLD * 100}%` }}
           />
+          <span
+            className="absolute -top-[18px] -translate-x-1/2 font-mono text-[9.5px] text-accent"
+            style={{ left: `${DISCOVERY_THRESHOLD * 100}%` }}
+          >
+            {DISCOVERY_THRESHOLD_TEXT}
+          </span>
         </span>
       ) : null}
       {shown || note ? (
@@ -320,18 +330,103 @@ function StudyRow({ study }: { study: Study }) {
     <li className={`grid gap-x-5 gap-y-2 border-b border-rule-soft px-4 py-4 last:border-b-0 ${GRID}`}>
       <div className="min-w-0">
         <p className="m-0 text-[14px] leading-snug text-ink">{study.title ?? "Untitled registration"}</p>
+        {/* The registry id is shown as text, not as a link: the registry's own
+            page renders in the browser and has failed to show the record for
+            readers, so the stored record is given here instead. */}
         <p className="m-0 mt-1.5 font-mono text-[11px] text-muted">
-          <a href={study.url ?? trialRecord(study.nctId)} target="_blank" rel="noreferrer">
-            {study.nctId} ↗
-          </a>
+          <span className="select-all text-ink-2">{study.nctId}</span>
           {study.startDate ? ` · start ${study.startDate}` : ""}
         </p>
+        <details className="amr-record mt-2">
+          <summary className="cursor-pointer font-display text-[12px] font-medium text-ink-2">
+            Registered record
+          </summary>
+          <dl className="m-0 mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-[12px] leading-snug">
+            <RecordLine term="Registry ID">{study.nctId}</RecordLine>
+            <RecordLine term="Conditions">{conditions.join("; ") || "Not recorded"}</RecordLine>
+            <RecordLine term="Interventions">{interventions.join("; ") || "Not recorded"}</RecordLine>
+            <RecordLine term="Study type">{study.studyType ?? "Not recorded"}</RecordLine>
+            <RecordLine term="Phase">{formatPhase(study.phase)}</RecordLine>
+            <RecordLine term="Registry status">{formatStatus(study.status)}</RecordLine>
+            <RecordLine term="Start">{study.startDate ?? "Not recorded"}</RecordLine>
+            <RecordLine term="Completion">{study.completionDate ?? "Not recorded"}</RecordLine>
+            <RecordLine term="Enrolment">
+              {study.enrollment === null ? "Not recorded" : study.enrollment.toLocaleString("en-GB")}
+            </RecordLine>
+          </dl>
+          <p className="m-0 mt-2 text-[11px] leading-snug text-muted">
+            As stored from ClinicalTrials.gov. Registration describes a study; it does not mean the
+            study worked.
+          </p>
+        </details>
       </div>
       <Cell label="Condition">{listed(conditions)}</Cell>
       <Cell label="Intervention">{listed(interventions)}</Cell>
-      <Cell label="Phase">{formatPhase(study.phase)}</Cell>
-      <Cell label="Registry status">{formatStatus(study.status)}</Cell>
+      <Cell label="Phase">
+        <PhaseMeter phase={study.phase} />
+        <span className="mt-1 block">{formatPhase(study.phase)}</span>
+      </Cell>
+      <Cell label="Registry status">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="amr-status h-2 w-2 shrink-0 rounded-full" data-status={statusGroup(study.status)} />
+          {formatStatus(study.status)}
+        </span>
+      </Cell>
     </li>
+  );
+}
+
+/**
+ * A study's phase as four steps. Combined phases ("Phase 1/2") fill to the
+ * half step; early phase 1 is a half step; "not applicable" is empty. The text
+ * beside it says the same thing in words.
+ */
+function PhaseMeter({ phase }: { phase: string | null }) {
+  const p = (phase ?? "").toUpperCase();
+  const level = p.includes("PHASE4")
+    ? 4
+    : p.includes("PHASE3")
+      ? p.includes("PHASE2")
+        ? 2.5
+        : 3
+      : p.includes("PHASE2")
+        ? p.includes("PHASE1")
+          ? 1.5
+          : 2
+        : p.includes("EARLY_PHASE1")
+          ? 0.5
+          : p.includes("PHASE1")
+            ? 1
+            : 0;
+  return (
+    <span aria-hidden="true" className="flex gap-[3px]">
+      {[1, 2, 3, 4].map((step) => (
+        <span
+          key={step}
+          className="amr-phase block h-[6px] w-4 rounded-full"
+          data-fill={level >= step ? "full" : level >= step - 0.5 ? "half" : "empty"}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Registry statuses grouped by what they mean for the reader. */
+function statusGroup(status: string | null): string {
+  const s = (status ?? "").toUpperCase();
+  if (s === "COMPLETED" || s === "APPROVED_FOR_MARKETING") return "done";
+  if (["RECRUITING", "NOT_YET_RECRUITING", "ACTIVE_NOT_RECRUITING", "ENROLLING_BY_INVITATION", "AVAILABLE"].includes(s))
+    return "open";
+  if (["TERMINATED", "WITHDRAWN", "SUSPENDED", "NO_LONGER_AVAILABLE"].includes(s)) return "stopped";
+  return "unknown";
+}
+
+function RecordLine({ term, children }: { term: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted">{term}</dt>
+      <dd className="m-0 break-words text-ink-2">{children}</dd>
+    </>
   );
 }
 

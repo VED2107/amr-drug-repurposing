@@ -1,32 +1,32 @@
 /**
- * The AMR Research mark.
+ * The Smart Screening mark: "Second use".
  *
- * Four bars hang from one spine, the way the research index draws coverage:
- * three run the full width, one stops short in ochre. It is the site's own
- * finding in its simplest form: most of the library has been checked and
- * scored, and the evidence runs out somewhere. The shorter bar is the one
- * accent, as everywhere else.
- *
- * Geometry on a 32-unit grid so it holds at 16px as a favicon
- * (`app/icon.svg` draws the same shapes). Decorative beside the wordmark,
- * which carries the name.
+ * Half of a capsule meets a molecular ring: an existing medicine, read again as
+ * a structure that might answer a new question. The capsule is the medicine
+ * already approved; the ochre ring is the structure the screening looks at.
+ * Drawn on a 256 grid so it holds at 16px as a favicon (`app/icon.svg` draws
+ * the same shapes). Decorative beside the wordmark, which carries the name.
  */
 export function Mark({ size = 32, className = "" }: { size?: number; className?: string }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 32 32"
+      viewBox="0 0 256 256"
       aria-hidden="true"
       focusable="false"
-      className={className}
+      className={`amr-mark-logo ${className}`}
     >
-      <rect width="32" height="32" rx="2" fill="#12130F" />
-      <rect x="7" y="6" width="1.5" height="20" fill="#F6F4EF" />
-      <rect x="8.5" y="7.5" width="16.5" height="3" fill="#F6F4EF" />
-      <rect x="8.5" y="12.5" width="16.5" height="3" fill="#F6F4EF" />
-      <rect x="8.5" y="17.5" width="12" height="3" fill="#F6F4EF" />
-      <rect x="8.5" y="22.5" width="4" height="3" fill="#B45309" />
+      <rect width="256" height="256" rx="20" fill="#12130F" />
+      <g transform="translate(128 128) scale(0.92) translate(-128 -128)">
+        <path className="amr-mark-capsule" d="M131.5 72V184H75.5A56 56 0 0 1 75.5 72Z" fill="#F6F4EF" />
+        <path
+          className="amr-mark-ring"
+          fillRule="evenodd"
+          fill="#B45309"
+          d="M188 72L236.5 100L236.5 156L188 184L139.5 156L139.5 100ZM188 94L217.44 111L217.44 145L188 162L158.56 145L158.56 111Z"
+        />
+      </g>
     </svg>
   );
 }

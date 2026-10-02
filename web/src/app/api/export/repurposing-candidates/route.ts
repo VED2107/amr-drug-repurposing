@@ -1,10 +1,10 @@
-import { repurposingCandidatesCsv } from "@/lib/export";
+import { csvHeaders, exportFilename, repurposingCandidatesCsv } from "@/lib/export";
 import { isPathogenKey } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The repurposing candidates as CSV — every one, or those for one pathogen
+ * The repurposing candidates as CSV: every one, or those for one pathogen
  * (`?pathogen=mtb`). The same population the dashboard and the lists count.
  */
 export async function GET(request: Request) {
@@ -14,15 +14,8 @@ export async function GET(request: Request) {
   }
   try {
     const { csv, rows } = await repurposingCandidatesCsv(pathogen ?? undefined);
-    const name = pathogen ? `repurposing-candidates-${pathogen}.csv` : "repurposing-candidates.csv";
-    return new Response(csv, {
-      headers: {
-        "content-type": "text/csv; charset=utf-8",
-        "content-disposition": `attachment; filename="${name}"`,
-        "cache-control": "no-store",
-        "x-row-count": String(rows),
-      },
-    });
+    const population = pathogen ? `repurposing-candidates-${pathogen}` : "repurposing-candidates";
+    return new Response(csv, { headers: csvHeaders(exportFilename(population, rows), rows) });
   } catch (error) {
     console.error("repurposing-candidates export failed", error);
     return new Response("Export unavailable", { status: 503 });

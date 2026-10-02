@@ -1,4 +1,4 @@
-import { approvedMedicinesCsv } from "@/lib/export";
+import { approvedMedicinesCsv, csvHeaders, exportFilename } from "@/lib/export";
 
 export const dynamic = "force-dynamic";
 
@@ -6,14 +6,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const { csv, rows } = await approvedMedicinesCsv();
-    return new Response(csv, {
-      headers: {
-        "content-type": "text/csv; charset=utf-8",
-        "content-disposition": 'attachment; filename="approved-medicines.csv"',
-        "cache-control": "no-store",
-        "x-row-count": String(rows),
-      },
-    });
+    return new Response(csv, { headers: csvHeaders(exportFilename("approved-medicines", rows), rows) });
   } catch (error) {
     console.error("approved-medicines export failed", error);
     return new Response("Export unavailable", { status: 503 });
