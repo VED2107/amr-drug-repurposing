@@ -14,8 +14,7 @@ import {
   DISCOVERY_THRESHOLD,
   DISCOVERY_THRESHOLD_TEXT,
   formatProbability,
-  mayShowProbability,
-} from "@/lib/science";
+  mayShowProbability, studyCountText } from "@/lib/science";
 import type { PathogenKey } from "@/lib/types";
 import type { RawSearchParams } from "@/lib/url";
 
@@ -306,7 +305,7 @@ function EvidenceLine({ labRecords, studies }: { labRecords: number; studies: nu
       {studies > 0 ? (
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-clinical">
           <EvidenceIcon kind="clinical" size={10} />
-          {studies.toLocaleString("en-GB")} registered {studies === 1 ? "study" : "studies"}
+          {studyCountText(studies)} registered {studies === 1 ? "study" : "studies"}
         </span>
       ) : null}
     </span>

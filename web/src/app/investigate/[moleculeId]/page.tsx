@@ -40,8 +40,7 @@ import {
 import {
   DISCOVERY_THRESHOLD,
   DISCOVERY_THRESHOLD_TEXT,
-  DOCKING_SCREENING_TARGET_KCAL_MOL,
-} from "@/lib/science";
+  DOCKING_SCREENING_TARGET_KCAL_MOL, studyCountText, STUDIES_PER_MEDICINE_CAP } from "@/lib/science";
 import { isPathogenKey, PATHOGEN_KEYS, type PathogenKey } from "@/lib/types";
 import { chemblCompound, pdbStructure } from "@/lib/links";
 import { firstValue, numberParam, withParams, type RawSearchParams } from "@/lib/url";
@@ -154,7 +153,7 @@ export default async function MedicinePage(props: {
             .
           </p>
           <dl className="m-0 mt-6 flex flex-wrap gap-x-8 gap-y-3">
-            <Fact label="Registered studies" value={clinical.checked ? n(studyTotal) : "Not yet checked"} />
+            <Fact label="Registered studies" value={clinical.checked ? studyCountText(studyTotal) : "Not yet checked"} />
             <Fact label="Lab records" value={n(labTotal)} />
             <Fact
               label={`Pathogens at ${DISCOVERY_THRESHOLD_TEXT}`}
@@ -263,10 +262,13 @@ export default async function MedicinePage(props: {
                 ) : (
                   <p className="m-0 text-[13px] leading-snug text-ink-2">
                     <span className="block font-mono text-[24px] font-medium tabular-nums text-ink">
-                      {n(studyTotal)}
+                      {studyCountText(studyTotal)}
                     </span>
                     registered {studyTotal === 1 ? "study names" : "studies name"} this medicine,
-                    for any condition. <Link href="#studies">See them below</Link>.
+                    for any condition.
+                    {studyTotal >= STUDIES_PER_MEDICINE_CAP
+                      ? ` The registry search keeps the first ${STUDIES_PER_MEDICINE_CAP}, so there may be more.`
+                      : ""} <Link href="#studies">See them below</Link>.
                   </p>
                 )}
               </EvidencePart>

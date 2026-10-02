@@ -150,3 +150,14 @@ export const NO_MODEL_NOTICE =
  */
 export const LABEL_ACTIVE_MICROMOLAR = 10;
 export const LABEL_INACTIVE_MICROMOLAR = 100;
+
+/**
+ * The registry search keeps at most this many studies per medicine
+ * (`configs/config.yaml`, clinicaltrials.max_studies_per_drug). A medicine at
+ * the cap may have more, so its count is shown as "50+", never as exactly 50.
+ */
+export const STUDIES_PER_MEDICINE_CAP = 50;
+
+export function studyCountText(n: number): string {
+  return n >= STUDIES_PER_MEDICINE_CAP ? `${STUDIES_PER_MEDICINE_CAP}+` : n.toLocaleString("en-GB");
+}

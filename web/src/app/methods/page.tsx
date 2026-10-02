@@ -255,6 +255,44 @@ export default async function Methods() {
         </div>
       </div>
 
+      {/* How new medicines get their scores. */}
+      <section aria-labelledby="worker-h" className="mt-16 rounded-card border border-rule bg-raised p-5 md:p-7">
+        <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] md:items-center">
+          <div>
+            <h2 id="worker-h" className="m-0 font-display text-[clamp(22px,2.4vw,28px)] font-semibold tracking-[-0.02em] text-ink">
+              How newly approved medicines are scored
+            </h2>
+            <p className="m-0 mt-3 text-[14px] leading-relaxed text-ink-2">
+              A self-hosted update worker, run separately from this website, checks the FDA Orange
+              Book and ChEMBL for newly approved medicines, scores each new one with the same four
+              trained models, and publishes the results here. It runs on demand as a batch job.
+            </p>
+          </div>
+          <ol className="m-0 grid list-none gap-2 p-0 sm:grid-cols-2">
+            {[
+              ["Finds", "new approved medicines and their structures"],
+              ["Scores", "each with the four trained models; it never retrains on new data"],
+              ["Checks itself", "model files are checksum-verified and a known-answer test runs on every start"],
+              ["Publishes", "the new predictions to the database this site reads"],
+            ].map(([verb, text], i) => (
+              <li key={verb} className="flex gap-3 rounded-card border border-rule-soft bg-paper p-3">
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-accent font-mono text-[11px] text-accent">
+                  {i + 1}
+                </span>
+                <span className="text-[13px] leading-snug text-ink-2">
+                  <strong className="font-display font-semibold text-ink">{verb}</strong> {text}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+        <p className="m-0 mt-5 border-t border-rule-soft pt-4 text-[13px] leading-relaxed text-muted">
+          The worker does not yet classify new medicines as antibacterial or not. Until that step
+          runs, a new medicine reads &ldquo;not yet checked&rdquo; and is not counted as a
+          repurposing candidate.
+        </p>
+      </section>
+
       {/* The code behind it. */}
       <section aria-labelledby="code-h" className="mt-16 flex flex-wrap items-center justify-between gap-5 rounded-card border border-ink bg-raised px-5 py-5 md:px-7">
         <div>
@@ -262,7 +300,7 @@ export default async function Methods() {
             The code behind it
           </h2>
           <p className="m-0 mt-1 max-w-[60ch] text-[14px] leading-relaxed text-ink-2">
-            The pipeline, the models&rsquo; training, the checks and this website live in one
+            The pipeline, the models&rsquo; training, the checks and this website are in one public
             repository on GitHub.
           </p>
         </div>
