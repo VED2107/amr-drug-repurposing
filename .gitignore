@@ -54,3 +54,9 @@ worker.env
 # Local convenience file holding a connection string for pasting into Vercel.
 VERCEL_DATABASE_URL.local.txt
 *.local.txt
+
+# Playwright MCP scratch files (screenshots, console logs, page dumps).
+.playwright-mcp/
+
+# Exported reports (PDFs, CSVs) generated on demand from the web app.
+exports/
