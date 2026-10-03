@@ -79,6 +79,8 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
         <span className="block h-full bg-faint" style={{ width: `${pctFailed}%` }} />
       </div>
 
+      {s.priorityPhase ? <PriorityPhase phase={s.priorityPhase} paused={s.runStatus === "PAUSED"} /> : null}
+
       <dl className="m-0 mt-5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
         <Stat label="Running" value={n(j.running)} />
         <Stat label="Queued" value={n(j.queued)} />
@@ -95,7 +97,7 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
           note={
             s.etaMinutes == null
               ? "needs 10 completions in the last 15 minutes"
-              : `estimate from measured throughput, finishing about ${time(s.estimatedCompletionAt!)}`
+              : `from the last 15 minutes' rate, about ${time(s.estimatedCompletionAt!)}; smaller ligands are docked first, so later jobs take longer and this is a lower bound`
           }
         />
         <Stat label="Elapsed" value={elapsed == null ? "—" : duration(elapsed)} />
@@ -111,7 +113,32 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
   );
 }
 
-const KIND_LABEL: Record<string, string> = { local: "Local", kaggle: "Kaggle" };
+/**
+ * The queue's first phase: medicines ranked by the AI models are docked before
+ * the rest. A ranking says which medicines to check first; it is not a result.
+ */
+function PriorityPhase({
+  phase,
+  paused,
+}: {
+  phase: NonNullable<DockingStatus["priorityPhase"]>;
+  paused: boolean;
+}) {
+  const n = (v: number) => v.toLocaleString("en-GB");
+  return (
+    <p className="m-0 mt-4 text-[13px] leading-snug text-ink-2">
+      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Docking first · </span>
+      the {n(phase.size)} medicines the AI models rank highest for any of the four bacteria:{" "}
+      <span className="font-mono tabular-nums text-ink">
+        {n(phase.finished)} / {n(phase.size)}
+      </span>{" "}
+      finished, {n(phase.jobsLeft)} of their jobs left. The other medicines stay queued behind them
+      {paused ? "; the run is paused now that this phase is done." : "."}
+    </p>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = { local: "Local", kaggle: "Kaggle", colab: "Colab" };
 
 /**
  * Where the work is running. Workers are listed while their heartbeat is under

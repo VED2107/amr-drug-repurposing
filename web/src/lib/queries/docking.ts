@@ -22,6 +22,8 @@ import { queryLive, toNum } from "@/lib/db/client";
  */
 
 export const MIN_COMPLETIONS_FOR_ETA = 10;
+/** Medicines docked first when the queue has a priority phase (see priorityPhase). */
+export const PRIORITY_PHASE_SIZE = 1000;
 
 export interface DockingTargetSummary {
   targetId: string;
@@ -78,6 +80,13 @@ export interface DockingStatus {
   successRate: number | null;
   firstStartedAt: string | null;
   lastCompletedAt: string | null;
+  /**
+   * A priority phase: some queued jobs were moved ahead of the rest (priority < 0).
+   * The phase is the PRIORITY_PHASE_SIZE medicines with the highest ACTIVE-model
+   * probability for any of the four bacteria, ties by ligand id, the rule the
+   * queue was reordered with. Null when no phase is set up.
+   */
+  priorityPhase: { size: number; finished: number; jobsLeft: number } | null;
   workers: {
     online: number;
     slots: number;
@@ -127,7 +136,7 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
   }
   if (!configHash) return null;
 
-  const [runRows, cfgRows, valRows, medRows, ligRows, tgtRows, jobRows, procRows, wkRows, wkList, kindRows] =
+  const [runRows, cfgRows, valRows, medRows, ligRows, tgtRows, jobRows, procRows, wkRows, wkList, kindRows, phaseRows] =
     await Promise.all([
     queryLive<Row>(
       `select run_id, run_name, status, engine, engine_version, started_at from docking.runs
@@ -217,6 +226,22 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
         where j.config_hash = ? and j.status = 'COMPLETED' and j.completed_at > now() - interval '15 minutes'
         group by 1`,
       [configHash],
+    ),
+    // The priority phase: finished = medicines with no job still queued or running.
+    queryLive<Row>(
+      `with top as (
+         select l.ligand_id from docking.ligands l
+           join amr.v_active_predictions p on p.molecule_id = l.molecule_id
+          where l.ligand_id in (select ligand_id from docking.jobs where config_hash = ?)
+          group by l.ligand_id order by max(p.probability) desc, l.ligand_id limit ${PRIORITY_PHASE_SIZE}),
+       per as (
+         select t.ligand_id, count(j.id) filter (where j.status in ('QUEUED','RUNNING')) as open
+           from top t join docking.jobs j on j.ligand_id = t.ligand_id and j.config_hash = ?
+          group by t.ligand_id)
+       select exists (select 1 from docking.jobs where config_hash = ? and priority < 0) as active,
+              count(*) as n, count(*) filter (where open = 0) as finished, coalesce(sum(open), 0) as jobs_left
+         from per`,
+      [configHash, configHash, configHash],
     ),
   ]);
 
@@ -335,6 +360,9 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
     successRate: attempted ? Math.round((10000 * completed) / attempted) / 10000 : null,
     firstStartedAt: iso(j.first_start),
     lastCompletedAt: iso(j.last_done),
+    priorityPhase: phaseRows?.[0]?.active
+      ? { size: num(phaseRows[0].n), finished: num(phaseRows[0].finished), jobsLeft: num(phaseRows[0].jobs_left) }
+      : null,
     workers: { online: num(wkRows?.[0]?.n), slots: num(wkRows?.[0]?.slots), byKind, list: workerList },
     readAt: now.toISOString(),
   };
