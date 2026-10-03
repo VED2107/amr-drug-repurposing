@@ -11,6 +11,14 @@ Receptors and ligands are fetched once per worker and cached on disk by
 checksum; nothing is prepared per job. Any number of these workers, on any
 number of machines, can consume the same queue.
 
+Pipelining: once Vina has finished and its output has passed the checks, the
+slot hands the job to a finisher thread (upload both artifacts, register them,
+mark the job COMPLETED) and claims its next job, so the CPU is not idle for the
+~6 network round trips that storing a result takes. A job is still COMPLETED
+only after its artifacts are stored, under the same lease check; it stays in the
+heartbeat set until then. The hand-off queue is bounded, so if storage stalls the
+slots wait instead of piling up results.
+
 Shutdown (SIGINT/SIGTERM): stop claiming, let running jobs finish for
 `DOCKING_SHUTDOWN_GRACE` seconds, then kill Vina and hand unfinished jobs back
 to the queue without counting the attempt.
@@ -19,6 +27,7 @@ to the queue without counting the attempt.
 from __future__ import annotations
 
 import os
+import queue as stdqueue
 import random
 import signal
 import socket
@@ -34,6 +43,17 @@ from .config import DockingParameters, Settings, available_cpus
 from .engine import Cancelled, EngineError, VinaRunner, engine_version
 
 log = get_logger("amr.batchdock.worker")
+
+
+@dataclass
+class DockedJob:
+    """Vina has run and its output passed the checks; storing it is all that is left."""
+    job: q.ClaimedJob
+    run: object
+    target: "TargetInputs"
+    ligand_sha: str | None
+    out: Path
+    t0: float
 
 
 @dataclass(frozen=True)
@@ -72,6 +92,9 @@ class Worker:
         self.failed = 0
         self._pending_counts = [0, 0]
         self.scratch = settings.artifact_dir / "_scratch" / settings.worker_id
+        # Finisher threads store results while the slots dock the next jobs.
+        self.finishers = max(1, min(4, (settings.concurrency + 1) // 2))
+        self._handoff: stdqueue.Queue = stdqueue.Queue(maxsize=max(1, settings.concurrency))
 
     # -- inputs -----------------------------------------------------------
 
@@ -123,6 +146,12 @@ class Worker:
     # -- one job ----------------------------------------------------------
 
     def process(self, conn, job: q.ClaimedJob) -> str:
+        """Dock and store one job on this connection (the unpipelined path)."""
+        out = self.dock(conn, job)
+        return self.finish(conn, out) if isinstance(out, DockedJob) else out
+
+    def dock(self, conn, job: q.ClaimedJob) -> "str | DockedJob":
+        """Run Vina for a job. Returns a final status, or a DockedJob still to be stored."""
         t0 = time.monotonic()
         try:
             if job.config_hash != self.p.config_hash:
@@ -138,7 +167,14 @@ class Worker:
 
             out = self.scratch / f"{job.id}_out.pdbqt"
             run = self.runner.run(target.receptor, ligand, out, target.center)  # type: ignore[arg-type]
+            return DockedJob(job, run, target, ligand_sha, out, t0)
+        except Exception as exc:
+            return self._failed(conn, job, exc, t0)
 
+    def finish(self, conn, d: DockedJob) -> str:
+        """Store a docked job's artifacts, then mark it COMPLETED (only while the lease is held)."""
+        job, run, target, ligand_sha, out, t0 = d.job, d.run, d.target, d.ligand_sha, d.out, d.t0
+        try:
             prefix = f"poses/{self.p.config_hash[:12]}/{job.target_id}/{job.ligand_id}"
             pose = self.store.write("pose_pdbqt", f"{prefix}.pdbqt", run.pose_text.encode("utf-8"))
             logf = self.store.write("vina_log", f"{prefix}.log", run.log_text.encode("utf-8"))
@@ -172,22 +208,26 @@ class Worker:
             }
             ok = q.complete(conn, job, self.s.worker_id, result)
             return "COMPLETED" if ok else "LEASE_LOST"
-        except Cancelled:
+        except Exception as exc:
+            return self._failed(conn, job, exc, t0)
+
+    def _failed(self, conn, job: q.ClaimedJob, exc: Exception, t0: float) -> str:
+        if isinstance(exc, Cancelled):
             q.release(conn, job, self.s.worker_id)
             return "RELEASED"
-        except EngineError as exc:
+        if isinstance(exc, EngineError):
             return q.fail(conn, job, self.s.worker_id, str(exc), transient=exc.transient,
                           status=exc.status, duration=time.monotonic() - t0)
-        except ArtifactError as exc:
+        if isinstance(exc, ArtifactError):
             return q.fail(conn, job, self.s.worker_id, f"artifact: {exc}", transient=True,
                           status="FAILED", duration=time.monotonic() - t0)
-        except Exception as exc:  # database hiccup, disk full ...: retry with backoff
-            log.exception("job %s: unexpected error", job.id)
-            try:
-                return q.fail(conn, job, self.s.worker_id, f"{type(exc).__name__}: {exc}",
-                              transient=True, status="FAILED", duration=time.monotonic() - t0)
-            except Exception:
-                return "UNRECORDED"  # the lease will expire and stale recovery requeues it
+        # database hiccup, disk full ...: retry with backoff
+        log.error("job %s: unexpected error", job.id, exc_info=exc)
+        try:
+            return q.fail(conn, job, self.s.worker_id, f"{type(exc).__name__}: {exc}",
+                          transient=True, status="FAILED", duration=time.monotonic() - t0)
+        except Exception:
+            return "UNRECORDED"  # the lease will expire and stale recovery requeues it
 
     # -- slots, heartbeat, lifecycle -------------------------------------
 
@@ -222,19 +262,18 @@ class Worker:
                 job = jobs[0]
                 with self._lock:
                     self._active[job.id] = job
+                handed_off = False
                 try:
-                    status = self.process(conn, job)
+                    out = self.dock(conn, job)
+                    if isinstance(out, DockedJob):
+                        self._handoff.put(out)   # blocks while the finishers are behind
+                        handed_off = True
+                    else:
+                        self._record(job, out, f"slot {n}")
                 finally:
-                    with self._lock:
-                        self._active.pop(job.id, None)
-                with self._lock:
-                    if status == "COMPLETED":
-                        self.completed += 1
-                        self._pending_counts[0] += 1
-                    elif status not in ("RELEASED", "QUEUED"):
-                        self.failed += 1
-                        self._pending_counts[1] += 1
-                log.info("slot %d job %s %s/%s -> %s", n, job.id, job.ligand_id, job.target_id, status)
+                    if not handed_off:
+                        with self._lock:
+                            self._active.pop(job.id, None)
             except Exception:
                 log.exception("slot %d: error; reconnecting", n)
                 try:
@@ -244,6 +283,41 @@ class Worker:
                     pass
                 conn = None
                 self.stop.wait(5)
+        if conn is not None:
+            conn.close()
+
+    def _record(self, job: q.ClaimedJob, status: str, who: str) -> None:
+        with self._lock:
+            if status == "COMPLETED":
+                self.completed += 1
+                self._pending_counts[0] += 1
+            elif status not in ("RELEASED", "QUEUED"):
+                self.failed += 1
+                self._pending_counts[1] += 1
+        log.info("%s job %s %s/%s -> %s", who, job.id, job.ligand_id, job.target_id, status)
+
+    def _finisher(self, n: int) -> None:
+        """Store docked jobs until a None arrives. Every job taken is finished or failed."""
+        conn = None
+        while True:
+            d = self._handoff.get()
+            if d is None:
+                break
+            try:
+                # finish() records its own failures; a connection it leaves broken is replaced here.
+                if conn is not None and (conn.closed or conn.broken):
+                    conn = None
+                if conn is None:
+                    conn = q.wait_for_db(self.s.database_url)
+                self._record(d.job, self.finish(conn, d), f"finisher {n}")
+            except Exception:
+                # Not even a connection: the job keeps its lease until the heartbeat set drops
+                # it below; then the lease expires and stale recovery requeues it.
+                log.exception("finisher %d: job %s could not be stored", n, d.job.id)
+                conn = None
+            finally:
+                with self._lock:
+                    self._active.pop(d.job.id, None)
         if conn is not None:
             conn.close()
 
@@ -300,9 +374,15 @@ class Worker:
         hb.start()
         slots = [threading.Thread(target=self._slot, args=(i,), name=f"slot-{i}")
                  for i in range(self.s.concurrency)]
-        for t in slots:
+        finishers = [threading.Thread(target=self._finisher, args=(i,), name=f"finisher-{i}")
+                     for i in range(self.finishers)]
+        for t in finishers + slots:
             t.start()
         for t in slots:
+            t.join()
+        for _ in finishers:
+            self._handoff.put(None)   # after every docked job already queued
+        for t in finishers:
             t.join()
         self.stop.set()
         hb.join(timeout=30)
