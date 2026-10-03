@@ -90,14 +90,18 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
           value={n(j.structureUnavailable + j.ligandPreparationFailed + j.targetPreparationFailed)}
           note="structure unavailable or preparation failed; not docking failures"
         />
-        <Stat label="Throughput" value={`${s.throughput.jobsPerMinute15m} jobs/min`} note="last 15 minutes" />
+        <Stat
+          label="Throughput"
+          value={`${s.throughput.jobsPerMinute2h ?? s.throughput.jobsPerMinute15m} jobs/min`}
+          note={`last 2 hours · last hour ${s.throughput.jobsPerMinute1h ?? "—"} · last 15 min ${s.throughput.jobsPerMinute15m}`}
+        />
         <Stat
           label="Estimated remaining"
           value={s.etaMinutes == null ? "Not yet measurable" : duration(s.etaMinutes * 60_000)}
           note={
             s.etaMinutes == null
               ? "needs 10 completions in the last 15 minutes"
-              : `from the last 15 minutes' rate, about ${time(s.estimatedCompletionAt!)}; smaller ligands are docked first, so later jobs take longer and this is a lower bound`
+              : `rate over the ${s.etaBasis ?? "last 15 minutes"}, about ${time(s.estimatedCompletionAt!)}; the faster ligands are docked first, so later jobs take longer and this is a lower bound`
           }
         />
         <Stat label="Elapsed" value={elapsed == null ? "—" : duration(elapsed)} />

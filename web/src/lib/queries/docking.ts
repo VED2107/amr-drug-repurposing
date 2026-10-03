@@ -73,8 +73,10 @@ export interface DockingStatus {
   };
   percentFinished: number;
   percentCompleted: number;
-  throughput: { jobsPerMinute5m: number; jobsPerMinute15m: number };
+  throughput: { jobsPerMinute5m: number; jobsPerMinute15m: number; jobsPerMinute1h: number; jobsPerMinute2h: number };
   etaMinutes: number | null;
+  /** The completion window the ETA's rate comes from, e.g. "last 2 hours". */
+  etaBasis: string | null;
   estimatedCompletionAt: string | null;
   averageDockingSeconds: number | null;
   successRate: number | null;
@@ -185,6 +187,8 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
               count(*) filter (where j.status = 'CANCELLED') as cancelled,
               count(*) filter (where j.status = 'COMPLETED' and j.completed_at > now() - interval '5 minutes') as done5,
               count(*) filter (where j.status = 'COMPLETED' and j.completed_at > now() - interval '15 minutes') as done15,
+              count(*) filter (where j.status = 'COMPLETED' and j.completed_at > now() - interval '60 minutes') as done60,
+              count(*) filter (where j.status = 'COMPLETED' and j.completed_at > now() - interval '120 minutes') as done120,
               avg(j.duration_seconds) filter (where j.status = 'COMPLETED') as avg_dur,
               min(j.started_at) as first_start,
               max(j.completed_at) filter (where j.status = 'COMPLETED') as last_done
@@ -294,7 +298,19 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
   const finished = total - remaining;
   const done15 = num(j.done15);
   const rate15 = done15 / 15;
-  const etaMinutes = done15 >= MIN_COMPLETIONS_FOR_ETA && rate15 > 0 ? remaining / rate15 : null;
+  // A 15-minute window swings with whichever jobs happen to finish in it (a few
+  // slow ligands can hold every slot), so the ETA uses the longest window the
+  // run has been going for: 2 hours, else 1 hour, else 15 minutes.
+  const runMinutes = j.first_start ? (Date.now() - new Date(j.first_start as string).getTime()) / 60_000 : 0;
+  const windows: [number, number, string][] = [
+    [120, num(j.done120), "last 2 hours"],
+    [60, num(j.done60), "last hour"],
+    [15, done15, "last 15 minutes"],
+  ];
+  const [win, doneWin, etaBasisLabel] =
+    windows.find(([m, d]) => runMinutes >= m && d >= MIN_COMPLETIONS_FOR_ETA) ?? windows[2];
+  const rateEta = doneWin / win;
+  const etaMinutes = doneWin >= MIN_COMPLETIONS_FOR_ETA && rateEta > 0 ? remaining / rateEta : null;
   const attempted = completed + dockingFailed;
   const processed = num(procRows?.[0]?.n);
   const pct = (v: number) => (expected ? Math.round((10000 * v) / expected) / 100 : 0);
@@ -352,8 +368,11 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
     throughput: {
       jobsPerMinute5m: Math.round((num(j.done5) / 5) * 100) / 100,
       jobsPerMinute15m: Math.round(rate15 * 100) / 100,
+      jobsPerMinute1h: Math.round((num(j.done60) / 60) * 100) / 100,
+      jobsPerMinute2h: Math.round((num(j.done120) / 120) * 100) / 100,
     },
     etaMinutes: etaMinutes == null ? null : Math.round(etaMinutes * 10) / 10,
+    etaBasis: etaMinutes == null ? null : etaBasisLabel,
     estimatedCompletionAt:
       etaMinutes == null ? null : new Date(now.getTime() + etaMinutes * 60_000).toISOString(),
     averageDockingSeconds: j.avg_dur == null ? null : Math.round(num(j.avg_dur) * 10) / 10,
