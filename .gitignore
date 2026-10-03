@@ -60,3 +60,6 @@ VERCEL_DATABASE_URL.local.txt
 
 # Exported reports (PDFs, CSVs) generated on demand from the web app.
 exports/
+
+# Batch docking artifact cache (the shared copy lives in Supabase Storage).
+data/docking/

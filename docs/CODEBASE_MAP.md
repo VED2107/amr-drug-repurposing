@@ -95,6 +95,23 @@ wrote; it never computes.
 | `ligand.py` | 78 | Meeko ligand preparation, plus the flexibility guard (max 10 rotatable bonds, 60 heavy atoms) that stops Vina stalling forever. |
 | `vina_runner.py` | 124 | AutoDock Vina invocation, seeded and reproducible, 600 s per-ligand timeout. |
 
+### Batch docking — `src/batchdock/` (runs in Docker, `Dockerfile.docking`)
+
+Every medicine x every target, from a Postgres job queue. See `docs/BATCH_DOCKING.md`.
+
+| File | Responsibility |
+| --- | --- |
+| `schema.sql` | The `docking` schema (= `web/supabase/migrations/0005_docking_queue.sql`). |
+| `config.py` | Content-hashed scientific parameters; operational env settings. |
+| `prepare.py` | Ligands (1,761, once) and receptors (4, cofactor kept), PDBQT validation. |
+| `queue.py` | Enqueue, SKIP LOCKED claims, leases, retries with backoff, stale recovery. |
+| `engine.py` | Vina invocation and cross-checked output parsing. |
+| `worker.py` | Long-lived multi-slot worker with heartbeat and graceful shutdown. |
+| `progress.py` | Campaign status computed from the database. |
+| `validation.py` | QC checks and the redocking validation run that gates the full batch. |
+| `artifacts.py` | Local cache + Supabase Storage, SHA-256 verified. |
+| `cli.py` | `python -m src.batchdock <command>`; wrapped by `npm run docking:*`. |
+
 ### Everything else
 
 | File | Lines | Responsibility |

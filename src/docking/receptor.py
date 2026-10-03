@@ -169,7 +169,8 @@ def compute_box_center(pdb_text: str, target: TargetSpec) -> tuple[tuple[float, 
 def _mk_prepare_receptor_executable() -> Path:
     """Locate Meeko's receptor preparation entry point in this interpreter."""
     scripts = Path(sys.executable).parent
-    for name in ("mk_prepare_receptor.exe", "mk_prepare_receptor"):
+    # Windows wheels install an .exe shim; Linux installs the script with its .py name.
+    for name in ("mk_prepare_receptor.exe", "mk_prepare_receptor", "mk_prepare_receptor.py"):
         candidate = scripts / name
         if candidate.exists():
             return candidate

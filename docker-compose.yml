@@ -1,0 +1,69 @@
+# Batch docking. The website stays on Vercel and the database on Supabase;
+# this file only runs the compute.
+#
+#   docker compose build docking
+#   docker compose run --rm docking migrate | prepare | validation-run | enqueue | status
+#   docker compose up -d --scale docking-worker=1 docking-worker     # long-lived worker(s)
+#   docker compose run --rm docking-test                             # tests incl. real Vina
+#
+# Credentials come from docking.env (gitignored): DOCKING_DATABASE_URL,
+# SUPABASE_URL, SUPABASE_SECRET_KEY. See docs/BATCH_DOCKING.md.
+
+x-docking: &docking
+  build:
+    context: .
+    dockerfile: Dockerfile.docking
+  image: amr-docking:latest
+  env_file: docking.env
+  environment:
+    DOCKING_CONCURRENCY: ${DOCKING_CONCURRENCY:-}
+    DOCKING_EXHAUSTIVENESS: ${DOCKING_EXHAUSTIVENESS:-8}
+    DOCKING_TIMEOUT: ${DOCKING_TIMEOUT:-1800}
+    DOCKING_RETRIES: ${DOCKING_RETRIES:-2}
+  volumes:
+    - ./data/docking:/data/docking
+    - ./logs:/app/logs
+
+services:
+  docking:
+    <<: *docking
+    profiles: ["cli"]
+
+  docking-worker:
+    <<: *docking
+    command: ["worker"]
+    restart: unless-stopped
+    # Long enough for running Vina jobs to finish or be handed back to the queue.
+    stop_grace_period: 40s
+    environment:
+      DOCKING_CONCURRENCY: ${DOCKING_CONCURRENCY:-}
+      DOCKING_EXHAUSTIVENESS: ${DOCKING_EXHAUSTIVENESS:-8}
+      DOCKING_TIMEOUT: ${DOCKING_TIMEOUT:-1800}
+      DOCKING_RETRIES: ${DOCKING_RETRIES:-2}
+      DOCKING_SHUTDOWN_GRACE: "20"
+
+  docking-testdb:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: docking_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 30
+    tmpfs: /var/lib/postgresql/data
+
+  docking-test:
+    image: amr-docking:latest
+    profiles: ["test"]
+    depends_on:
+      docking-testdb:
+        condition: service_healthy
+    entrypoint: ["python", "-m", "pytest", "-o", "addopts=", "-q", "tests/test_batchdock.py"]
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./web/supabase/migrations:/app/web/supabase/migrations:ro
+    environment:
+      AMR_TEST_DATABASE_URL: postgresql://postgres:test@docking-testdb:5432/docking_test
+      DOCKING_ARTIFACT_DIR: /tmp/docking-test

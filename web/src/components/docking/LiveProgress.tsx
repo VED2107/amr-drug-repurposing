@@ -1,0 +1,149 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import type { DockingStatus } from "@/lib/queries/docking";
+
+/**
+ * Campaign progress, refreshed from /api/docking/status every 15 seconds.
+ *
+ * Every number here is computed by the database on the request that returned
+ * it. The bar shows finished jobs (completed + failed) as two segments; the
+ * ETA appears only when recent throughput is measurable, and is labelled as an
+ * estimate from the last 15 minutes.
+ */
+export function LiveProgress({ initial }: { initial: DockingStatus }) {
+  const [s, setS] = useState(initial);
+  const [stale, setStale] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/docking/status", { cache: "no-store" });
+        if (!res.ok) throw new Error(String(res.status));
+        const next = (await res.json()) as DockingStatus & { available: boolean };
+        if (alive && next.available) {
+          setS(next);
+          setStale(false);
+        }
+      } catch {
+        if (alive) setStale(true);
+      }
+    };
+    const id = setInterval(tick, 15_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  const n = (v: number) => v.toLocaleString("en-GB");
+  const j = s.jobs;
+  const failedAll = j.dockingFailed + j.structureUnavailable + j.ligandPreparationFailed + j.targetPreparationFailed;
+  const pctDone = j.expected ? (100 * j.completed) / j.expected : 0;
+  const pctFailed = j.expected ? (100 * failedAll) / j.expected : 0;
+  // Elapsed at the moment the database was read, so render stays pure.
+  const elapsed = s.startedAt ? new Date(s.readAt).getTime() - new Date(s.startedAt).getTime() : null;
+
+  return (
+    <section aria-labelledby="progress-h" aria-live="polite" className="rounded-card border border-rule bg-raised p-4 md:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="progress-h" className="m-0 font-mono text-[11px] uppercase tracking-[0.14em] text-muted">
+          04 · Check fit · molecular docking
+        </h2>
+        <p suppressHydrationWarning className="m-0 font-mono text-[11px] text-muted">
+          {stale ? "Could not refresh; showing the last reading" : `Read from the database ${time(s.readAt)}`}
+        </p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-x-10 gap-y-4">
+        <Big value={n(s.medicines.total)} label="medicines" />
+        <Big value={`× ${n(s.targets.length)}`} label="bacterial protein targets" />
+        <Big value={n(j.expected)} label="docking jobs" />
+      </div>
+
+      <p className="m-0 mt-6 font-mono text-[clamp(20px,2.4vw,28px)] tabular-nums text-ink">
+        {n(j.completed)} <span className="text-muted">/ {n(j.expected)} completed</span>
+        <span className="ml-3 text-computational">{s.percentCompleted.toFixed(1)}%</span>
+      </p>
+      <div
+        role="progressbar"
+        aria-label="Docking jobs completed"
+        aria-valuemin={0}
+        aria-valuemax={j.expected}
+        aria-valuenow={j.completed}
+        className="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-sunken"
+      >
+        <span className="block h-full bg-computational" style={{ width: `${pctDone}%` }} />
+        <span className="block h-full bg-faint" style={{ width: `${pctFailed}%` }} />
+      </div>
+
+      <dl className="m-0 mt-5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+        <Stat label="Running" value={n(j.running)} />
+        <Stat label="Queued" value={n(j.queued)} />
+        <Stat label="Docking failed" value={n(j.dockingFailed)} />
+        <Stat
+          label="No dockable input"
+          value={n(j.structureUnavailable + j.ligandPreparationFailed + j.targetPreparationFailed)}
+          note="structure unavailable or preparation failed; not docking failures"
+        />
+        <Stat label="Throughput" value={`${s.throughput.jobsPerMinute15m} jobs/min`} note="last 15 minutes" />
+        <Stat
+          label="Estimated remaining"
+          value={s.etaMinutes == null ? "Not yet measurable" : duration(s.etaMinutes * 60_000)}
+          note={
+            s.etaMinutes == null
+              ? "needs 10 completions in the last 15 minutes"
+              : `estimate from measured throughput, finishing about ${time(s.estimatedCompletionAt!)}`
+          }
+        />
+        <Stat label="Elapsed" value={elapsed == null ? "—" : duration(elapsed)} />
+        <Stat
+          label="Workers online"
+          value={`${n(s.workers.online)} · ${n(s.workers.slots)} slots`}
+          note="each slot runs one AutoDock Vina process"
+        />
+      </dl>
+    </section>
+  );
+}
+
+function Big({ value, label }: { value: string; label: string }) {
+  return (
+    <p className="m-0">
+      <span className="block font-display text-[clamp(28px,3.6vw,44px)] font-semibold leading-none tracking-[-0.02em] text-ink tabular-nums">
+        {value}
+      </span>
+      <span className="mt-1.5 block text-[13px] text-ink-2">{label}</span>
+    </p>
+  );
+}
+
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div>
+      <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">{label}</dt>
+      <dd suppressHydrationWarning className="m-0 mt-1 font-mono text-[15px] tabular-nums text-ink">{value}</dd>
+      {note ? <dd suppressHydrationWarning className="m-0 mt-0.5 text-[11px] leading-snug text-muted">{note}</dd> : null}
+    </div>
+  );
+}
+
+function duration(ms: number): string {
+  const m = Math.round(ms / 60_000);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h} h ${m % 60} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
+function time(isoString: string): string {
+  return new Date(isoString).toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}

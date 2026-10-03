@@ -6,7 +6,7 @@ import "server-only";
  * database no longer supports.
  */
 
-import { query, queryOne, toNum } from "@/lib/db/client";
+import { query, queryLive, queryOne, toNum } from "@/lib/db/client";
 import { PATHOGEN_KEYS, type PathogenKey } from "@/lib/types";
 
 const ACTIVE = "join model_versions m on m.model_version = p.model_version and m.status = 'ACTIVE'";
@@ -31,6 +31,11 @@ export interface StoryFigures {
   libraryPredictions: number;
   /** Library medicines with at least one successful docking result. */
   dockedMedicines: number;
+  /**
+   * The batch docking campaign (medicines x targets), read live. Null when the
+   * docking queue is not on this database.
+   */
+  docking: { jobsExpected: number; jobsCompleted: number; jobsFinished: number; medicines: number; targets: number } | null;
   /** Library medicines queried at ClinicalTrials.gov. */
   registryChecked: number;
   /** The prepared docking target for each pathogen, as the docking stage used it. */
@@ -38,7 +43,7 @@ export interface StoryFigures {
 }
 
 export async function getStoryFigures(): Promise<StoryFigures> {
-  const [row, targets] = await Promise.all([
+  const [row, targets, docking] = await Promise.all([
     queryOne<Record<string, unknown>>(
       `select
          (select count(*) from molecules where is_valid)                       as n,
@@ -52,12 +57,22 @@ export async function getStoryFigures(): Promise<StoryFigures> {
            where molecule_id in ${LIBRARY})                                     as checked`,
     ),
     query<Record<string, unknown>>(`select pathogen_key, name, pdb_id from targets`),
+    getDockingFigures(),
   ]);
   return {
     validMolecules: toNum(row?.n) ?? 0,
     labelledLabRecords: toNum(row?.labelled) ?? 0,
     libraryPredictions: toNum(row?.predictions) ?? 0,
-    dockedMedicines: toNum(row?.docked) ?? 0,
+    dockedMedicines: docking?.medicines ?? toNum(row?.docked) ?? 0,
+    docking: docking
+      ? {
+          jobsExpected: docking.expected,
+          jobsCompleted: docking.completed,
+          jobsFinished: docking.finished,
+          medicines: docking.medicines,
+          targets: docking.targets,
+        }
+      : null,
     registryChecked: toNum(row?.checked) ?? 0,
     targets: PATHOGEN_KEYS.flatMap((key) => {
       const t = targets.find((x) => String(x.pathogen_key) === key);
@@ -66,6 +81,44 @@ export async function getStoryFigures(): Promise<StoryFigures> {
         : [];
     }),
   };
+}
+
+/**
+ * Campaign counts for the overview, from the docking queue (live, uncached).
+ * "medicines" counts library medicines with at least one completed docking.
+ */
+async function getDockingFigures(): Promise<
+  { expected: number; completed: number; finished: number; medicines: number; targets: number } | null
+> {
+  try {
+    const rows = await queryLive<Record<string, unknown>>(
+      `with cfg as (
+          select config_hash from docking.runs where kind = 'full' and status <> 'CANCELLED'
+           order by created_at desc limit 1),
+        lib as (select count(distinct molecule_id) as n from amr.drugs where molecule_id is not null),
+        tgt as (select count(*) as n from docking.targets where selected)
+       select lib.n * tgt.n as expected, tgt.n as targets,
+              count(j.id) filter (where j.status = 'COMPLETED') as completed,
+              count(j.id) filter (where j.status not in ('QUEUED','RUNNING')) as finished,
+              count(distinct j.ligand_id) filter (where j.status = 'COMPLETED') as medicines
+         from cfg cross join lib cross join tgt
+         left join docking.jobs j on j.config_hash = cfg.config_hash
+              and j.ligand_id in (select ligand_id from docking.ligands where molecule_id is not null)
+              and j.target_id in (select target_id from docking.targets where selected)
+        group by lib.n, tgt.n`,
+    );
+    const r = rows?.[0];
+    if (!r) return null;
+    return {
+      expected: toNum(r.expected) ?? 0,
+      completed: toNum(r.completed) ?? 0,
+      finished: toNum(r.finished) ?? 0,
+      medicines: toNum(r.medicines) ?? 0,
+      targets: toNum(r.targets) ?? 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------ */

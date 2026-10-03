@@ -1,0 +1,22 @@
+{
+  "name": "amr-docking-commands",
+  "private": true,
+  "description": "Batch docking commands. Scripts only: the website is the separate Next.js project in web/, and the docking worker runs in Docker (Dockerfile.docking). See docs/BATCH_DOCKING.md.",
+  "scripts": {
+    "docking:build": "docker compose build docking-worker",
+    "docking:migrate": "docker compose run --rm docking migrate",
+    "docking:prepare": "docker compose run --rm docking prepare",
+    "docking:validation-run": "docker compose run --rm docking validation-run",
+    "docking:benchmark": "docker compose run --rm docking benchmark",
+    "docking:enqueue": "docker compose run --rm docking enqueue",
+    "docking:worker": "docker compose up -d docking-worker",
+    "docking:worker:stop": "docker compose stop docking-worker",
+    "docking:worker:logs": "docker compose logs -f --tail 50 docking-worker",
+    "docking:status": "docker compose run --rm docking status",
+    "docking:resume": "docker compose run --rm docking resume && docker compose up -d docking-worker",
+    "docking:pause": "docker compose run --rm docking pause",
+    "docking:retry-failed": "docker compose run --rm docking retry-failed",
+    "docking:validate": "docker compose run --rm docking validate",
+    "docking:test": "docker compose --profile test run --rm docking-test && docker compose --profile test down -v"
+  }
+}

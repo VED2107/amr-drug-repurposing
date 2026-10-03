@@ -1,0 +1,12 @@
+# Batch docking worker only. Versions match pyproject.toml, so a ligand prepared
+# in the container is prepared by the same code as in the research environment.
+rdkit==2026.3.6
+numpy==2.5.3
+scipy==1.18.1
+meeko==0.8.0
+gemmi==0.7.5
+requests==2.34.2
+PyYAML==6.0.3
+python-dotenv==1.2.3
+psycopg[binary]==3.3.6
+pytest==9.1.1

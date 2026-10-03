@@ -26,6 +26,8 @@ export interface PipelineFigures {
   withActivity: number;
   threshold: string;
   dockedMedicines: number;
+  /** The batch docking campaign, when the docking queue is on this database. */
+  docking: { jobsExpected: number; jobsCompleted: number; jobsFinished: number; targets: number } | null;
   registryChecked: number;
 }
 
@@ -38,7 +40,13 @@ export function Pipeline({ figures }: { figures: PipelineFigures }) {
       value: n(figures.libraryPredictions),
       text: `predictions; ${n(figures.withActivity)} medicines reach ${figures.threshold} for at least one bacterium`,
     },
-    { value: n(figures.dockedMedicines), text: "medicines docked so far", flag: "subset only" },
+    figures.docking
+      ? {
+          value: `${n(figures.docking.jobsCompleted)} / ${n(figures.docking.jobsExpected)}`,
+          text: `docking jobs completed (${n(figures.medicines)} medicines × ${n(figures.docking.targets)} targets)`,
+          flag: figures.docking.jobsFinished < figures.docking.jobsExpected ? "in progress" : undefined,
+        }
+      : { value: n(figures.dockedMedicines), text: "medicines docked so far", flag: "subset only" },
     { value: `${n(figures.registryChecked)} / ${n(figures.medicines)}`, text: "medicines checked for registered studies" },
   ];
   return (

@@ -109,6 +109,7 @@ export default async function Overview() {
             withActivity: summary.withActivity,
             threshold: DISCOVERY_THRESHOLD_TEXT,
             dockedMedicines: figures.dockedMedicines,
+            docking: figures.docking,
             registryChecked: figures.registryChecked,
           }}
         />

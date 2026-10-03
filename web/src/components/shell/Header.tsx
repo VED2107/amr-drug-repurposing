@@ -9,6 +9,7 @@ import { Mark } from "./Mark";
 const NAV = [
   { href: "/", label: "Overview" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/docking", label: "Docking" },
 ];
 
 /**
@@ -23,7 +24,9 @@ const NAV = [
 export function Header() {
   const pathname = usePathname();
   const investigating = pathname.startsWith("/investigate");
-  const at = NAV.findIndex((item) => item.href === pathname);
+  const at = NAV.findIndex((item) =>
+    item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`),
+  );
 
   return (
     <header
@@ -48,13 +51,13 @@ export function Header() {
 
         <nav
           aria-label="Main"
-          className="amr-navpill relative grid grid-cols-2 rounded-full"
-          style={{ ["--at" as string]: Math.max(at, 0) }}
+          className="amr-navpill relative grid grid-cols-3 rounded-full"
+          style={{ ["--at" as string]: Math.max(at, 0), ["--n" as string]: NAV.length }}
           data-none={at < 0 ? "" : undefined}
         >
           <span aria-hidden="true" className="amr-navpill-ink" />
           {NAV.map((item) => {
-            const on = pathname === item.href;
+            const on = NAV[at]?.href === item.href;
             return (
               <Link
                 key={item.href}

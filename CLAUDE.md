@@ -63,7 +63,12 @@ around one to make a layout or a query simpler.
   trial is still not a successful trial nor an approval for a new indication.
 - Resistance-phenotype coverage is 7.2% overall and 0.0% for E. coli, so the
   models predict activity against the *species*, not the resistant phenotype.
-- Docking has been run on a subset of candidates (53 medicines).
+- Batch docking (`src/batchdock/`, `docs/BATCH_DOCKING.md`) docks all 1,761
+  medicines x 4 targets = 7,044 AutoDock Vina jobs from a Postgres queue in the
+  `docking` schema, with workers in Docker. Read progress from
+  `python -m src.batchdock status` or `/api/docking/status`; never quote a count.
+  The receptors keep their NADPH/NAD cofactor (redocking failed without it).
+  The legacy `amr.docking_results` (53 medicines, apo pocket) are kept, not mixed in.
 - "Already an antibacterial" comes from WHO ATC codes (via ChEMBL) and FDA
   pharmacologic classes (openFDA), never from a name. Medicines neither source
   classifies stay among the repurposing candidates, marked for review. The

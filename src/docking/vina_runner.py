@@ -13,7 +13,9 @@ from ..logging_utils import get_logger
 log = get_logger("amr.docking.vina")
 
 # "   1       -7.646          0          0"
-_MODE_LINE = re.compile(r"^\s*(\d+)\s+(-?\d+\.\d+)\s+(\S+)\s+(\S+)\s*$")
+# Vina trims trailing zeros, so a score of exactly -7.000 prints as "-7"; the
+# decimal part is optional or that pose would be silently dropped.
+_MODE_LINE = re.compile(r"^\s*(\d+)\s+(-?\d+(?:\.\d+)?)\s+(\S+)\s+(\S+)\s*$")
 
 
 class VinaError(RuntimeError):

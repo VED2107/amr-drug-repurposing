@@ -13,7 +13,7 @@ const RETIRED = [
   "/case-study",
   "/explorer",
   "/molecular",
-  "/docking",
+  // "/docking" is live again: the batch docking campaign (stage 04).
   "/clinical",
   "/models",
   "/pipeline",

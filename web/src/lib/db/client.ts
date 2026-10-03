@@ -333,6 +333,21 @@ export async function query<T>(sql: string, params: Params = []): Promise<T[]> {
   return (await cachedRead(sql, JSON.stringify(params), version)) as T[];
 }
 
+/**
+ * Run a query against the live database, bypassing the read cache.
+ *
+ * For the docking queue only. Its tables live in the `docking` schema, which
+ * deliberately carries no data-version trigger (a queue writes several times a
+ * second), so a cached read would never be invalidated. Progress must be read
+ * as it is now. Returns `null` when the site runs against the research SQLite
+ * file, which has no docking queue.
+ */
+export async function queryLive<T>(sql: string, params: Params = []): Promise<T[] | null> {
+  if (dataSource() === "sqlite") return null;
+  const d = await driver();
+  return d.all<T>(sql, params);
+}
+
 /** Run a query expected to return at most one row. */
 export async function queryOne<T>(sql: string, params: Params = []): Promise<T | null> {
   const rows = await query<T>(sql, params);

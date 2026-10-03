@@ -93,7 +93,7 @@ export const PIPELINE: {
   },
   {
     verb: "Check fit",
-    line: "Dock selected molecules against bacterial proteins",
+    line: "Dock every medicine against a protein from each bacterium",
     note: "Docking estimates how a molecule may fit within a selected protein binding site.",
     evidence: "computational",
     evidenceLabel: "Computer prediction",

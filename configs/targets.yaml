@@ -14,6 +14,14 @@
 #   residues - box centred on the centroid of the named residue numbers. Use
 #              when the deposited structure has no informative bound ligand.
 #              Preparation fails loudly if a named residue is absent.
+#
+# cofactor (optional) - the CCD code of a bound cofactor kept in the receptor by
+#              the batch docking stage (src/batchdock). Redocking the
+#              co-crystallised ligands reproduced the crystal pose (top pose
+#              0.8-1.5 A RMSD) only with the cofactor present; without it the
+#              ligands moved into the empty cofactor cleft (3.8-12.6 A). The
+#              legacy top-candidates stage (src/pipeline/dock.py) does not read
+#              this field and still docks the apo pocket.
 # =============================================================================
 
 box_size_angstrom: [22.0, 22.0, 22.0]
@@ -28,6 +36,7 @@ targets:
     uniprot: "P0A017"
     site_mode: "ligand"
     site_reference: "TOP"          # trimethoprim, bound in the folate site
+    cofactor: "NDP"                # NADPH, retained as rigid receptor atoms in batch docking
     selection_notes: >-
       S. aureus DHFR solved with NADPH and trimethoprim. DHFR is a clinically
       validated antibacterial target (trimethoprim) and the bound inhibitor
@@ -43,6 +52,7 @@ targets:
     uniprot: "P0ABQ4"
     site_mode: "ligand"
     site_reference: "FOL"          # folate, the natural substrate
+    cofactor: "NAP"                # NADP+, retained as rigid receptor atoms in batch docking
     selection_notes: >-
       E. coli DHFR in the closed conformation with folate and NADP+ bound. The
       folate position defines the substrate site directly. The NADP+ cofactor is
@@ -73,6 +83,7 @@ targets:
     uniprot: "P9WGR1"
     site_mode: "ligand"
     site_reference: "641"          # co-crystallised direct InhA inhibitor
+    cofactor: "NAD"                # NAD+, retained as rigid receptor atoms in batch docking
     selection_notes: >-
       InhA is the target of isoniazid, the front-line tuberculosis drug, and is
       the best-validated M. tuberculosis target for small-molecule inhibition.

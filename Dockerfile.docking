@@ -1,0 +1,51 @@
+# The batch docking worker: AutoDock Vina 1.2.5 + RDKit + Meeko, nothing else.
+#
+#   in   : jobs from the `docking` schema in Supabase Postgres
+#          receptor / ligand PDBQT files from Supabase Storage (checksummed)
+#   runs : AutoDock Vina, one single-threaded process per slot
+#   out  : pose files + logs to Supabase Storage, results to Postgres
+#
+# The same image runs on a laptop, a cloud VM or a cluster node. Workers share
+# nothing but the database and the bucket, so start as many as there are CPUs.
+#
+#   docker build -f Dockerfile.docking -t amr-docking:latest .
+#   docker run -d --env-file docking.env amr-docking:latest worker
+#
+# See docs/BATCH_DOCKING.md.
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DOCKING_VINA_BIN=/usr/local/bin/vina \
+    DOCKING_ARTIFACT_DIR=/data/docking
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libxrender1 libxext6 libsm6 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-docking.txt ./
+RUN pip install -r requirements-docking.txt
+
+# AutoDock Vina 1.2.5, the official static Linux build from the Forli lab's
+# release page — the same version as the research pipeline's tools/vina.exe.
+# The checksum is pinned so the engine cannot change underneath a configuration.
+ADD --chmod=755 https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.5/vina_1.2.5_linux_x86_64 /usr/local/bin/vina
+RUN echo "fa0126a28a9ea9162d1b161dfa92bc76e632416db28ca246278ea4b2dc6860cb  /usr/local/bin/vina" | sha256sum -c - \
+    && vina --version
+
+COPY src ./src
+COPY configs ./configs
+COPY pyproject.toml README.md ./
+
+RUN useradd --create-home --uid 10001 amr \
+    && mkdir -p /app/logs /data/docking \
+    && chown -R amr:amr /app /data
+USER amr
+
+ENTRYPOINT ["python", "-m", "src.batchdock"]
+CMD ["status"]

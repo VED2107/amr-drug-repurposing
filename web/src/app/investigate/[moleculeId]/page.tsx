@@ -37,6 +37,7 @@ import {
   getStudies,
   getStudyConditionsForMedicine,
 } from "@/lib/queries/investigate";
+import { getMedicineDocking } from "@/lib/queries/docking";
 import {
   DISCOVERY_THRESHOLD,
   DISCOVERY_THRESHOLD_TEXT,
@@ -105,6 +106,7 @@ export default async function MedicinePage(props: {
     }),
     countStudiesForMedicine(moleculeId),                                   // 7
     getExistingUse([moleculeId]),                                          // 8
+    getMedicineDocking(moleculeId),                                        // 9
   ]);
 
   type Settled<T> = PromiseSettledResult<Awaited<T>>;
@@ -120,6 +122,9 @@ export default async function MedicinePage(props: {
   const studies = ok(settled[6] as Settled<ReturnType<typeof getStudies>>);
   const studyTotal = ok(settled[7] as Settled<ReturnType<typeof countStudiesForMedicine>>);
   const usesMap = ok(settled[8] as Settled<ReturnType<typeof getExistingUse>>);
+  // The batch docking campaign: one row per selected target. Null when the
+  // docking queue is not on this database; the stored legacy results are then shown.
+  const campaign = ok(settled[9] as Settled<ReturnType<typeof getMedicineDocking>>) ?? null;
 
   // Track which sections had a database failure (as opposed to a genuine
   // empty result). The distinction matters: "no lab records" is a finding;
@@ -354,7 +359,63 @@ export default async function MedicinePage(props: {
           </DocumentedBlock>
 
           <ComputationalBlock title="Docking" tag="Computational · nothing measured">
-            {dockingFailed ? (
+            {campaign && campaign.length > 0 ? (
+              <div className="flex flex-col gap-5">
+                {campaign.map((d) =>
+                  d.status === "COMPLETED" && d.bestAffinity != null ? (
+                    <div key={d.targetId}>
+                      <DockingRuler
+                        score={d.bestAffinity}
+                        target={DOCKING_SCREENING_TARGET_KCAL_MOL}
+                        pathogen={d.pathogenKey as PathogenKey}
+                        pathogenLabel={label(d.pathogenKey as PathogenKey)}
+                        targetName={d.proteinName}
+                        href={d.pdbId ? pdbStructure(d.pdbId) : null}
+                      />
+                      <a href={`/docking/${d.jobId}`} className="mt-1.5 inline-block text-[12px] text-ink-2 underline decoration-rule-strong underline-offset-4">
+                        Poses, configuration and files
+                      </a>
+                    </div>
+                  ) : (
+                    <div key={d.targetId}>
+                      <p className="m-0 flex items-center gap-2 text-[13px] leading-snug text-ink-2">
+                        <OrganismCell pathogen={d.pathogenKey as PathogenKey} size={22} />
+                        <span>
+                          {d.pdbId ? (
+                            <a href={pdbStructure(d.pdbId)} target="_blank" rel="noreferrer">
+                              {d.proteinName} ↗
+                            </a>
+                          ) : (
+                            d.proteinName
+                          )}{" "}
+                          <span className="text-muted">({label(d.pathogenKey as PathogenKey)})</span>
+                        </span>
+                      </p>
+                      <p className="m-0 mt-1.5 font-mono text-[12px] text-muted">
+                        {d.status === "QUEUED" || d.status === "RUNNING" || d.status == null
+                          ? "Not yet docked: queued in the docking run"
+                          : d.status === "STRUCTURE_UNAVAILABLE"
+                            ? "Not docked: no structure is available"
+                            : d.status === "LIGAND_PREPARATION_FAILED"
+                              ? "Not docked: the structure could not be prepared for docking"
+                              : "Docking did not produce a score"}
+                        {d.jobId ? (
+                          <a href={`/docking/${d.jobId}`} className="ml-2 underline decoration-rule-strong underline-offset-4">
+                            details
+                          </a>
+                        ) : null}
+                      </p>
+                    </div>
+                  ),
+                )}
+                <p className="m-0 text-[12px] leading-snug text-muted">
+                  AutoDock Vina, one experimentally solved protein per bacterium. This project&rsquo;s
+                  screening target is {DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol, its own mark
+                  rather than a universal cutoff. A docking score is a structural hypothesis, not proof of
+                  binding, and requires experimental validation.
+                </p>
+              </div>
+            ) : dockingFailed ? (
               <QueryUnavailable>Could not load docking results right now.</QueryUnavailable>
             ) : !docking || docking.length === 0 ? (
               <StateNote kind="unchecked" head="Not yet docked">
