@@ -129,6 +129,16 @@ def test_result_parsing_accepts_scores_printed_without_decimals():
     assert [p["affinity"] for p in parse_and_check(stdout, poses, 9)] == [-9.631, -7.0]
 
 
+def test_pose_just_outside_the_energy_range_is_not_missing():
+    # Job 4976 (ticarcillin / kp_kpc2): best -8.389, cutoff -5.389; Vina printed a 7th mode at
+    # -5.386, just outside the window, and correctly wrote 6 poses.
+    stdout = STDOUT.replace("-9.631", "-8.389").replace("-9.029", "-6.67") + "   3       -5.386      1.845      6.923\n"
+    poses = POSES.replace("-9.631      0.000", "-8.389      0.000").replace("-9.029      2.690", "-6.670      2.690")
+    assert len(parse_and_check(stdout, poses, 9, 3.0)) == 2
+    with pytest.raises(EngineError, match="within the energy range"):   # clearly inside: still caught
+        parse_and_check(stdout.replace("-5.386", "-5.500"), poses, 9, 3.0)
+
+
 def test_result_parsing_accepts_two_decimal_stdout_for_scores_below_minus_ten():
     # Vina prints -11.034 as "-11.03" (fixed-width column); this failed 3 real jobs.
     stdout = STDOUT.replace("-9.631", "-11.03").replace("-9.029", "-10.41")

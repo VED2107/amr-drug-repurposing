@@ -94,7 +94,9 @@ def parse_and_check(stdout: str, pose_text: str, num_modes: int, energy_range: f
         raise EngineError(f"pose file has {len(remarks)} poses but Vina reported {len(table)}",
                           transient=False)
     cutoff = table[0].score_kcal_mol + energy_range
-    unwritten = [p for p in table[len(remarks):] if p.score_kcal_mol <= cutoff + _STDOUT_TOLERANCE]
+    # Only a pose clearly inside the window is missing: stdout is rounded, so one within
+    # rounding of the edge may lie just outside it (-5.386 vs a -5.389 cutoff, job 4976).
+    unwritten = [p for p in table[len(remarks):] if p.score_kcal_mol <= cutoff - _STDOUT_TOLERANCE]
     if unwritten:
         raise EngineError(f"pose file has {len(remarks)} poses but Vina reported {len(table)} "
                           "within the energy range", transient=False)
