@@ -129,6 +129,15 @@ def test_result_parsing_accepts_scores_printed_without_decimals():
     assert [p["affinity"] for p in parse_and_check(stdout, poses, 9)] == [-9.631, -7.0]
 
 
+def test_result_parsing_accepts_two_decimal_stdout_for_scores_below_minus_ten():
+    # Vina prints -11.034 as "-11.03" (fixed-width column); this failed 3 real jobs.
+    stdout = STDOUT.replace("-9.631", "-11.03").replace("-9.029", "-10.41")
+    poses = POSES.replace("-9.631      0.000", "-11.034      0.000").replace("-9.029      2.690", "-10.408      2.690")
+    assert [p["affinity"] for p in parse_and_check(stdout, poses, 9)] == [-11.034, -10.408]
+    with pytest.raises(EngineError, match="!= file"):
+        parse_and_check(stdout.replace("-11.03", "-11.02"), poses, 9)
+
+
 @pytest.mark.parametrize("stdout,poses,msg", [
     ("", POSES, "no pose table"),
     (STDOUT, "", "empty or malformed"),
@@ -171,6 +180,26 @@ def test_kaggle_notebook_pins_the_validated_configuration():
     for name in ("SUPABASE_SECRET_KEY", "DOCKING_DATABASE_URL"):
         assert f'{name} = \\"' not in text and f"{name}=" not in text  # read from Kaggle Secrets only
     assert all(not c.get("outputs") for c in json.loads(text)["cells"])
+
+
+def test_colab_notebook_pins_the_validated_configuration_and_project():
+    nb = ROOT / "colab" / "docking_worker.ipynb"
+    if not nb.exists():
+        pytest.skip("notebook not present in this image")
+    text = nb.read_text(encoding="utf-8")
+    p = DockingParameters()
+    assert f'EXPECTED_CONFIG_HASH = \\"{p.config_hash}\\"' in text
+    assert f'EXPECTED_VERSION_LABEL = \\"{p.version_label}\\"' in text
+    assert '\\"DOCKING_WORKER_KIND\\": \\"colab\\"' in text
+    for name in ("SUPABASE_SECRET_KEY", "DOCKING_DATABASE_URL"):
+        assert f'{name} = \\"' not in text and f"{name}=" not in text  # read from Colab Secrets only
+    cells = json.loads(text)["cells"]
+    assert all(not c.get("outputs") for c in cells)
+    source = "".join("".join(c["source"]) for c in cells)
+    # Production is gated on the 5-job benchmark, and both notebooks refuse another project's credentials.
+    assert "BENCHMARK_JOBS = 5" in source and "assert BENCHMARK_PASSED" in source
+    for path in (nb, ROOT / "kaggle" / "docking_worker.ipynb"):
+        assert 'EXPECTED_PROJECT_REF = \\"jmkxlfxkvlsawxtmuugr\\"' in path.read_text(encoding="utf-8")
 
 
 def test_backoff_is_exponential_and_capped():

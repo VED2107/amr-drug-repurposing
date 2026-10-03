@@ -67,6 +67,12 @@ def build_command(binary: Path, receptor: Path, ligand: Path, out: Path,
     ]
 
 
+# Vina's stdout table is fixed-width: 3 dp for -9.631, but only 2 dp once the
+# score reaches -10 (-11.034 prints as -11.03). The file always has 3 dp and is
+# what gets stored; stdout must agree with it to within its own rounding.
+_STDOUT_TOLERANCE = 0.0051
+
+
 def parse_and_check(stdout: str, pose_text: str, num_modes: int, energy_range: float = 3.0) -> list[dict]:
     """Return the poses Vina wrote, or raise if its output is empty, inconsistent or invalid.
 
@@ -88,7 +94,7 @@ def parse_and_check(stdout: str, pose_text: str, num_modes: int, energy_range: f
         raise EngineError(f"pose file has {len(remarks)} poses but Vina reported {len(table)}",
                           transient=False)
     cutoff = table[0].score_kcal_mol + energy_range
-    unwritten = [p for p in table[len(remarks):] if p.score_kcal_mol <= cutoff + 0.0015]
+    unwritten = [p for p in table[len(remarks):] if p.score_kcal_mol <= cutoff + _STDOUT_TOLERANCE]
     if unwritten:
         raise EngineError(f"pose file has {len(remarks)} poses but Vina reported {len(table)} "
                           "within the energy range", transient=False)
@@ -97,7 +103,7 @@ def parse_and_check(stdout: str, pose_text: str, num_modes: int, energy_range: f
         values = [pose.score_kcal_mol, aff, lb, ub]
         if not all(math.isfinite(v) for v in values):
             raise EngineError("non-finite score in Vina output", transient=False)
-        if abs(pose.score_kcal_mol - aff) > 0.0015:  # stdout prints 3 dp, the file 3 dp
+        if abs(pose.score_kcal_mol - aff) > _STDOUT_TOLERANCE:
             raise EngineError(f"pose {pose.rank}: stdout {pose.score_kcal_mol} != file {aff}",
                               transient=False)
         poses.append({"rank": pose.rank, "affinity": aff, "rmsd_lb": lb, "rmsd_ub": ub})
