@@ -6,6 +6,7 @@
     python -m src.batchdock benchmark --jobs 50 --concurrency 7
     python -m src.batchdock enqueue          create every missing medicine x target job
     python -m src.batchdock worker           long-lived worker; run as many as you like, anywhere
+    python -m src.batchdock calibrate        measure 1..4 slots on real queue jobs; prints the best count
     python -m src.batchdock status [--json]  progress, from the database
     python -m src.batchdock resume           recover stale jobs, unpause the run
     python -m src.batchdock pause
@@ -14,7 +15,8 @@
 
 Environment: DOCKING_DATABASE_URL (or DATABASE_URL), DOCKING_CONCURRENCY,
 DOCKING_EXHAUSTIVENESS, DOCKING_TIMEOUT, DOCKING_RETRIES, DOCKING_CPU_PER_JOB,
-DOCKING_ARTIFACT_DIR, DOCKING_VINA_BIN, SUPABASE_URL + SUPABASE_SECRET_KEY
+DOCKING_ARTIFACT_DIR, DOCKING_VINA_BIN, DOCKING_WORKER_KIND, DOCKING_WORKER_LABEL,
+SUPABASE_URL + SUPABASE_SECRET_KEY
 (shared artifact storage), DOCKING_STORAGE_BUCKET.
 """
 
@@ -68,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--run-id")
     w.add_argument("--max-jobs", type=int)
     w.add_argument("--idle-exit", type=int, help="exit after this many idle seconds")
+    c = sub.add_parser("calibrate", help="measure 1..N slots on real queue jobs; prints the best slot count")
+    c.add_argument("--max-slots", type=int, default=4)
+    c.add_argument("--jobs-per-slot", type=int, default=3)
     s = sub.add_parser("status")
     s.add_argument("--json", action="store_true")
     sub.add_parser("resume")
@@ -180,6 +185,12 @@ def main(argv: list[str] | None = None) -> int:
             if run_id:
                 q.refresh_run_snapshot(conn, run_id)
             print(json.dumps(result))
+            return 0
+
+        if args.cmd == "calibrate":
+            from .calibrate import calibrate
+            report = calibrate(settings, params, max_slots=args.max_slots, jobs_per_slot=args.jobs_per_slot)
+            print(json.dumps(report, indent=2))
             return 0
 
         if args.cmd == "status":

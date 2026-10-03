@@ -66,12 +66,32 @@ def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
     return value
 
 
-def available_cpus() -> int:
-    """CPUs this process may actually use (cgroup/affinity aware where possible)."""
+def _cgroup_cpu_quota() -> int | None:
+    """Whole CPUs allowed by a cgroup CPU quota (v2 `cpu.max`, else v1), if one is set.
+    A container may see more cores than its quota lets it use."""
     try:
-        return max(1, len(os.sched_getaffinity(0)))  # type: ignore[attr-defined]
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            return max(1, int(int(quota) / int(period)))
+        return None
+    except (OSError, ValueError):
+        pass
+    try:
+        quota = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        return max(1, int(quota / period)) if quota > 0 and period > 0 else None
+    except (OSError, ValueError):
+        return None
+
+
+def available_cpus() -> int:
+    """CPUs this process may actually use (affinity and cgroup quota aware where possible)."""
+    try:
+        n = max(1, len(os.sched_getaffinity(0)))  # type: ignore[attr-defined]
     except AttributeError:
-        return max(1, os.cpu_count() or 1)
+        n = max(1, os.cpu_count() or 1)
+    quota = _cgroup_cpu_quota()
+    return min(n, quota) if quota else n
 
 
 def default_concurrency(cpu_per_job: int) -> int:
@@ -131,6 +151,10 @@ class Settings:
     storage_url: str | None
     storage_key: str | None
     storage_bucket: str
+    #: Where this worker runs ('local', 'kaggle', ...) and a free-text session
+    #: label. Shown on the dashboard; never part of a result's science.
+    worker_kind: str = "local"
+    session_label: str | None = None
     worker_id: str = field(default_factory=lambda: f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}")
 
     @property
@@ -140,7 +164,7 @@ class Settings:
     def describe(self) -> str:
         """One line, no secrets."""
         return (
-            f"worker={self.worker_id} concurrency={self.concurrency} cpu_per_job={self.cpu_per_job} "
+            f"worker={self.worker_id} kind={self.worker_kind} concurrency={self.concurrency} cpu_per_job={self.cpu_per_job} "
             f"timeout={self.timeout_seconds}s attempts={self.max_attempts} lease={self.lease_seconds}s "
             f"artifacts={self.artifact_dir} remote_storage={'on' if self.remote_storage else 'off'} "
             f"vina={self.vina_binary}"
@@ -171,6 +195,13 @@ def load_settings(*, require_database: bool = True) -> Settings:
     concurrency = _env_int("DOCKING_CONCURRENCY", default_concurrency(cpu_per_job))
     timeout = _env_int("DOCKING_TIMEOUT", 1800)
     lease = _env_int("DOCKING_LEASE_SECONDS", 180, minimum=30)
+    kind = (os.environ.get("DOCKING_WORKER_KIND") or "local").strip().lower()
+    label = (os.environ.get("DOCKING_WORKER_LABEL") or "").strip() or None
+    extra = {}
+    if kind != "local":
+        # Container hostnames on hosted notebooks are random; name the worker by
+        # where it runs so the dashboard can tell sessions apart.
+        extra["worker_id"] = f"{kind}-{label or socket.gethostname()}-{uuid.uuid4().hex[:8]}"
     return Settings(
         database_url=url,
         artifact_dir=Path(os.environ.get("DOCKING_ARTIFACT_DIR")
@@ -186,4 +217,7 @@ def load_settings(*, require_database: bool = True) -> Settings:
         storage_url=(os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or None),
         storage_key=(os.environ.get("SUPABASE_SECRET_KEY") or None),
         storage_bucket=os.environ.get("DOCKING_STORAGE_BUCKET", "docking-artifacts"),
+        worker_kind=kind,
+        session_label=label,
+        **extra,
     )

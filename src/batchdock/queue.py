@@ -359,13 +359,16 @@ def refresh_run_snapshot(conn, run_id: str) -> dict[str, int]:
 # ---------------------------------------------------------------------------
 
 def register_worker(conn, worker_id: str, hostname: str, engine: str, engine_version: str,
-                    concurrency: int, cpu_per_job: int, cpu_count: int) -> None:
+                    concurrency: int, cpu_per_job: int, cpu_count: int, *,
+                    kind: str = "local", session_label: str | None = None) -> None:
     conn.execute(
         """insert into docking.workers(worker_id, hostname, engine, engine_version, concurrency,
-               cpu_per_job, cpu_count, status)
-           values (%s,%s,%s,%s,%s,%s,%s,'RUNNING')
-           on conflict (worker_id) do update set status='RUNNING', last_seen_at=now()""",
-        (worker_id, hostname, engine, engine_version, concurrency, cpu_per_job, cpu_count))
+               cpu_per_job, cpu_count, status, kind, session_label)
+           values (%s,%s,%s,%s,%s,%s,%s,'RUNNING',%s,%s)
+           on conflict (worker_id) do update set status='RUNNING', last_seen_at=now(),
+               concurrency=excluded.concurrency""",
+        (worker_id, hostname, engine, engine_version, concurrency, cpu_per_job, cpu_count,
+         kind, session_label))
 
 
 def worker_seen(conn, worker_id: str, *, status: str = "RUNNING", completed: int = 0,

@@ -75,6 +75,25 @@ def campaign_status(conn, config_hash: str) -> dict[str, Any]:
     workers = conn.execute(
         """select count(*), coalesce(sum(concurrency), 0) from docking.workers
             where status in ('RUNNING','STOPPING') and last_seen_at > now() - interval '3 minutes'""").fetchone()
+    worker_rows = conn.execute(
+        """select w.worker_id, w.hostname, w.kind, w.session_label, w.concurrency, w.cpu_count, w.status,
+                  w.jobs_completed, w.jobs_failed, w.started_at, w.last_seen_at,
+                  coalesce(array_agg(j.id order by j.id) filter (where j.status = 'RUNNING'), '{}'),
+                  count(j.id) filter (where j.status = 'COMPLETED'
+                                        and j.completed_at > now() - interval '15 minutes')
+             from docking.workers w
+             left join docking.jobs j on j.worker_id = w.worker_id and j.config_hash = %s
+            where w.status in ('RUNNING','STOPPING') and w.last_seen_at > now() - interval '3 minutes'
+            group by w.worker_id
+            order by w.kind, w.started_at""", (config_hash,)).fetchall()
+    # Throughput by where the work ran, over the same 15 minutes as the campaign
+    # rate, including workers that have since stopped.
+    kind_rates = dict(conn.execute(
+        """select coalesce(w.kind, 'unregistered'), count(*)
+             from docking.jobs j left join docking.workers w on w.worker_id = j.worker_id
+            where j.config_hash = %s and j.status = 'COMPLETED'
+              and j.completed_at > now() - interval '15 minutes'
+            group by 1""", (config_hash,)).fetchall())
 
     expected = int(medicines) * int(targets[0])
     remaining = queued + running
@@ -83,6 +102,23 @@ def campaign_status(conn, config_hash: str) -> dict[str, Any]:
     rate15 = done15 / 15.0
     eta_minutes = (remaining / rate15) if (done15 >= MIN_COMPLETIONS_FOR_ETA and rate15 > 0) else None
     attempted = completed + int(dock_failed)
+
+    worker_list = [{
+        "workerId": r[0], "hostname": r[1], "kind": r[2], "session": r[3],
+        "concurrency": int(r[4]), "cpuCount": int(r[5]) if r[5] is not None else None,
+        "status": r[6], "completed": int(r[7]), "failed": int(r[8]),
+        "startedAt": r[9].isoformat(), "lastHeartbeat": r[10].isoformat(),
+        "currentJobs": [int(v) for v in r[11]],
+        "jobsPerMinute15m": round(int(r[12]) / 15.0, 2),
+    } for r in worker_rows]
+    by_kind: dict[str, dict[str, Any]] = {}
+    for w in worker_list:
+        k = by_kind.setdefault(w["kind"], {"online": 0, "slots": 0, "jobsPerMinute15m": 0.0})
+        k["online"] += 1
+        k["slots"] += w["concurrency"]
+    for kind, n in kind_rates.items():
+        k = by_kind.setdefault(kind, {"online": 0, "slots": 0, "jobsPerMinute15m": 0.0})
+        k["jobsPerMinute15m"] = round(int(n) / 15.0, 2)
 
     return {
         "runId": run[0] if run else None,
@@ -118,7 +154,8 @@ def campaign_status(conn, config_hash: str) -> dict[str, Any]:
         "successRate": round(completed / attempted, 4) if attempted else None,
         "firstStartedAt": first_start.isoformat() if first_start else None,
         "lastCompletedAt": last_done.isoformat() if last_done else None,
-        "workers": {"online": int(workers[0]), "slots": int(workers[1])},
+        "workers": {"online": int(workers[0]), "slots": int(workers[1]),
+                    "byKind": by_kind, "list": worker_list},
     }
 
 
@@ -145,4 +182,11 @@ def format_status(s: dict[str, Any]) -> str:
         f"avg docking    {s['averageDockingSeconds']} s/job   success rate {s['successRate']}",
         f"workers        {s['workers']['online']} online, {s['workers']['slots']} slots",
     ]
+    for kind, k in sorted(s["workers"].get("byKind", {}).items()):
+        lines.append(f"  {kind:<12} {k['online']} online, {k['slots']} slots, "
+                     f"{k['jobsPerMinute15m']} jobs/min (15 min)")
+    for w in s["workers"].get("list", []):
+        lines.append(f"    {w['workerId']:<40} {w['kind']:<7} cpus {w['cpuCount']} slots {w['concurrency']} "
+                     f"done {w['completed']} running {len(w['currentJobs'])} "
+                     f"{w['jobsPerMinute15m']} jobs/min  last heartbeat {w['lastHeartbeat'][:19]}")
     return "\n".join(lines)

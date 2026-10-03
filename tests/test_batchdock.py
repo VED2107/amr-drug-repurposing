@@ -147,6 +147,32 @@ def test_config_hash_tracks_scientific_parameters_only():
     assert DockingParameters(seed=1).config_hash != a.config_hash
 
 
+def test_worker_kind_is_operational_and_names_the_worker(monkeypatch):
+    monkeypatch.setenv("DOCKING_DATABASE_URL", "postgresql://unused")
+    monkeypatch.delenv("DOCKING_WORKER_KIND", raising=False)
+    local = load_settings()
+    assert local.worker_kind == "local" and not local.worker_id.startswith("local-")
+    monkeypatch.setenv("DOCKING_WORKER_KIND", "Kaggle")
+    monkeypatch.setenv("DOCKING_WORKER_LABEL", "batch-0603")
+    kaggle = load_settings()
+    assert kaggle.worker_kind == "kaggle" and kaggle.session_label == "batch-0603"
+    assert kaggle.worker_id.startswith("kaggle-batch-0603-")
+    assert kaggle.worker_id != load_settings().worker_id  # every process is a distinct worker
+
+
+def test_kaggle_notebook_pins_the_validated_configuration():
+    nb = ROOT / "kaggle" / "docking_worker.ipynb"
+    if not nb.exists():
+        pytest.skip("notebook not present in this image")
+    text = nb.read_text(encoding="utf-8")
+    p = DockingParameters()
+    assert f'EXPECTED_CONFIG_HASH = \\"{p.config_hash}\\"' in text
+    assert f'EXPECTED_VERSION_LABEL = \\"{p.version_label}\\"' in text
+    for name in ("SUPABASE_SECRET_KEY", "DOCKING_DATABASE_URL"):
+        assert f'{name} = \\"' not in text and f"{name}=" not in text  # read from Kaggle Secrets only
+    assert all(not c.get("outputs") for c in json.loads(text)["cells"])
+
+
 def test_backoff_is_exponential_and_capped():
     assert [q.backoff_seconds(n) for n in (1, 2, 3)] == [30, 60, 120]
     assert q.backoff_seconds(20) == 900

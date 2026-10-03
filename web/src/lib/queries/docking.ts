@@ -78,8 +78,28 @@ export interface DockingStatus {
   successRate: number | null;
   firstStartedAt: string | null;
   lastCompletedAt: string | null;
-  workers: { online: number; slots: number };
+  workers: {
+    online: number;
+    slots: number;
+    /** Keyed by where workers run: "local", "kaggle", ... */
+    byKind: Record<string, { online: number; slots: number; jobsPerMinute15m: number }>;
+    list: DockingWorker[];
+  };
   readAt: string;
+}
+
+export interface DockingWorker {
+  workerId: string;
+  hostname: string;
+  kind: string;
+  session: string | null;
+  cpuCount: number | null;
+  concurrency: number;
+  status: string;
+  completed: number;
+  currentJobs: number[];
+  jobsPerMinute15m: number;
+  lastHeartbeat: string;
 }
 
 type Row = Record<string, unknown>;
@@ -107,7 +127,8 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
   }
   if (!configHash) return null;
 
-  const [runRows, cfgRows, valRows, medRows, ligRows, tgtRows, jobRows, procRows, wkRows] = await Promise.all([
+  const [runRows, cfgRows, valRows, medRows, ligRows, tgtRows, jobRows, procRows, wkRows, wkList, kindRows] =
+    await Promise.all([
     queryLive<Row>(
       `select run_id, run_name, status, engine, engine_version, started_at from docking.runs
         where kind = 'full' and config_hash = ? and status <> 'CANCELLED' order by created_at desc limit 1`,
@@ -176,7 +197,52 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
       `select count(*) as n, coalesce(sum(concurrency), 0) as slots from docking.workers
         where status in ('RUNNING','STOPPING') and last_seen_at > now() - interval '3 minutes'`,
     ),
+    queryLive<Row>(
+      `select w.worker_id, w.hostname, w.kind, w.session_label, w.concurrency, w.cpu_count, w.status,
+              w.jobs_completed, w.last_seen_at,
+              coalesce(array_agg(j.id order by j.id) filter (where j.status = 'RUNNING'), '{}') as current_jobs,
+              count(j.id) filter (where j.status = 'COMPLETED'
+                                    and j.completed_at > now() - interval '15 minutes') as done15
+         from docking.workers w
+         left join docking.jobs j on j.worker_id = w.worker_id and j.config_hash = ?
+        where w.status in ('RUNNING','STOPPING') and w.last_seen_at > now() - interval '3 minutes'
+        group by w.worker_id
+        order by w.kind, w.started_at`,
+      [configHash],
+    ),
+    // Throughput by where the work ran, including workers that have since stopped.
+    queryLive<Row>(
+      `select coalesce(w.kind, 'unregistered') as kind, count(*) as done15
+         from docking.jobs j left join docking.workers w on w.worker_id = j.worker_id
+        where j.config_hash = ? and j.status = 'COMPLETED' and j.completed_at > now() - interval '15 minutes'
+        group by 1`,
+      [configHash],
+    ),
   ]);
+
+  const workerList: DockingWorker[] = (wkList ?? []).map((w) => ({
+    workerId: String(w.worker_id),
+    hostname: String(w.hostname),
+    kind: String(w.kind),
+    session: str(w.session_label),
+    cpuCount: w.cpu_count == null ? null : num(w.cpu_count),
+    concurrency: num(w.concurrency),
+    status: String(w.status),
+    completed: num(w.jobs_completed),
+    currentJobs: Array.isArray(w.current_jobs) ? (w.current_jobs as unknown[]).map(num) : [],
+    jobsPerMinute15m: Math.round((num(w.done15) / 15) * 100) / 100,
+    lastHeartbeat: iso(w.last_seen_at) ?? "",
+  }));
+  const byKind: DockingStatus["workers"]["byKind"] = {};
+  for (const w of workerList) {
+    const k = (byKind[w.kind] ??= { online: 0, slots: 0, jobsPerMinute15m: 0 });
+    k.online += 1;
+    k.slots += w.concurrency;
+  }
+  for (const r of kindRows ?? []) {
+    const k = (byKind[String(r.kind)] ??= { online: 0, slots: 0, jobsPerMinute15m: 0 });
+    k.jobsPerMinute15m = Math.round((num(r.done15) / 15) * 100) / 100;
+  }
 
   const run = runRows?.[0];
   const cfg = cfgRows?.[0];
@@ -269,7 +335,7 @@ export async function getDockingStatus(): Promise<DockingStatus | null> {
     successRate: attempted ? Math.round((10000 * completed) / attempted) / 10000 : null,
     firstStartedAt: iso(j.first_start),
     lastCompletedAt: iso(j.last_done),
-    workers: { online: num(wkRows?.[0]?.n), slots: num(wkRows?.[0]?.slots) },
+    workers: { online: num(wkRows?.[0]?.n), slots: num(wkRows?.[0]?.slots), byKind, list: workerList },
     readAt: now.toISOString(),
   };
 }

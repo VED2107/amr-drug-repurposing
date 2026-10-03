@@ -17,6 +17,6 @@
     "docking:pause": "docker compose run --rm docking pause",
     "docking:retry-failed": "docker compose run --rm docking retry-failed",
     "docking:validate": "docker compose run --rm docking validate",
-    "docking:test": "docker compose --profile test run --rm docking-test && docker compose --profile test down -v"
+    "docking:test": "docker compose --profile test run --rm docking-test; docker compose --profile test rm -sfv docking-testdb"
   }
 }

@@ -242,6 +242,10 @@ create table if not exists docking.workers (
   started_at     timestamptz not null default now(),
   last_seen_at   timestamptz not null default now()
 );
+-- Where a worker runs, for the dashboard: 'local' (Docker on a workstation),
+-- 'kaggle' (a Kaggle notebook session) or any other label. Operational only.
+alter table docking.workers add column if not exists kind text not null default 'local';
+alter table docking.workers add column if not exists session_label text;
 
 -- Not exposed to the public API roles. The website reads it server-side.
 alter table docking.artifacts      enable row level security;

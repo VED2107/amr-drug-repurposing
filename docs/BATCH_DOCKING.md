@@ -123,6 +123,9 @@ Operational settings: `DOCKING_CONCURRENCY` (default: CPUs − 1),
 
 ## Adding machines
 
+Free Kaggle notebook sessions can join the same queue as extra workers:
+`kaggle/docking_worker.ipynb`, set up as described in `docs/KAGGLE_DOCKING.md`.
+
 Workers share nothing but the database and the bucket. On any Linux machine
 with Docker:
 

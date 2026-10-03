@@ -287,7 +287,8 @@ class Worker:
         self.scratch.mkdir(parents=True, exist_ok=True)
         conn = q.wait_for_db(self.s.database_url)
         q.register_worker(conn, self.s.worker_id, socket.gethostname(), self.p.engine,
-                          self.p.engine_version, self.s.concurrency, self.s.cpu_per_job, available_cpus())
+                          self.p.engine_version, self.s.concurrency, self.s.cpu_per_job, available_cpus(),
+                          kind=self.s.worker_kind, session_label=self.s.session_label)
         q.recover_stale(conn)
         self._load_ligand_index(conn)
         conn.close()

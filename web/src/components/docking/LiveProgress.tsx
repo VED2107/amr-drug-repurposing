@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { DockingStatus } from "@/lib/queries/docking";
+import type { DockingStatus, DockingWorker } from "@/lib/queries/docking";
 
 /**
  * Campaign progress, refreshed from /api/docking/status every 15 seconds.
@@ -84,7 +84,7 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
         <Stat label="Queued" value={n(j.queued)} />
         <Stat label="Docking failed" value={n(j.dockingFailed)} />
         <Stat
-          label="No dockable input"
+          label="Input unavailable"
           value={n(j.structureUnavailable + j.ligandPreparationFailed + j.targetPreparationFailed)}
           note="structure unavailable or preparation failed; not docking failures"
         />
@@ -105,7 +105,77 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
           note="each slot runs one AutoDock Vina process"
         />
       </dl>
+
+      <Workers workers={s.workers} />
     </section>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = { local: "Local", kaggle: "Kaggle" };
+
+/**
+ * Where the work is running. Workers are listed while their heartbeat is under
+ * three minutes old; throughput by kind counts every completion in the last 15
+ * minutes, including workers that have since stopped.
+ */
+function Workers({ workers }: { workers: DockingStatus["workers"] }) {
+  const kinds = Object.entries(workers.byKind ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  const list: DockingWorker[] = workers.list ?? [];
+  const total = kinds.reduce((t, [, k]) => t + k.jobsPerMinute15m, 0);
+  if (!kinds.length) return null;
+  return (
+    <div className="mt-6 border-t border-rule pt-4">
+      <h3 className="m-0 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Workers</h3>
+      <dl className="m-0 mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+        {kinds.map(([kind, k]) => (
+          <Stat
+            key={kind}
+            label={KIND_LABEL[kind] ?? kind}
+            value={`${k.online} · ${k.slots} slots`}
+            note={`${k.jobsPerMinute15m} jobs/min, last 15 minutes`}
+          />
+        ))}
+        <Stat
+          label="Total"
+          value={`${workers.online} · ${workers.slots} slots`}
+          note={`${Math.round(total * 100) / 100} jobs/min, last 15 minutes`}
+        />
+      </dl>
+      {list.length ? (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse font-mono text-[12px] tabular-nums">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-muted">
+                <th className="py-1.5 pr-4 font-normal">Worker</th>
+                <th className="py-1.5 pr-4 font-normal">Where</th>
+                <th className="py-1.5 pr-4 font-normal">CPUs</th>
+                <th className="py-1.5 pr-4 font-normal">Slots</th>
+                <th className="py-1.5 pr-4 font-normal">Running jobs</th>
+                <th className="py-1.5 pr-4 font-normal">Completed</th>
+                <th className="py-1.5 pr-4 font-normal">Jobs/min</th>
+                <th className="py-1.5 font-normal">Last heartbeat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((w) => (
+                <tr key={w.workerId} className="border-t border-rule text-ink">
+                  <td className="py-1.5 pr-4 break-all">{w.workerId}</td>
+                  <td className="py-1.5 pr-4">{KIND_LABEL[w.kind] ?? w.kind}</td>
+                  <td className="py-1.5 pr-4">{w.cpuCount ?? "—"}</td>
+                  <td className="py-1.5 pr-4">{w.concurrency}</td>
+                  <td className="py-1.5 pr-4">{w.currentJobs.length ? w.currentJobs.join(", ") : "—"}</td>
+                  <td className="py-1.5 pr-4">{w.completed.toLocaleString("en-GB")}</td>
+                  <td className="py-1.5 pr-4">{w.jobsPerMinute15m}</td>
+                  <td suppressHydrationWarning className="py-1.5">
+                    {w.lastHeartbeat ? new Date(w.lastHeartbeat).toLocaleTimeString("en-GB") : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

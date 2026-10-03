@@ -225,7 +225,8 @@ class ArtifactStore:
         if sha256_bytes(data) != sha256:
             raise ArtifactError(f"artifact {object_key} downloaded but its checksum does not match the database")
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.dl")
+        # Unique per thread: two slots may fetch the same ligand at the same moment.
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.dl")
         tmp.write_bytes(data)
         os.replace(tmp, path)
         return path

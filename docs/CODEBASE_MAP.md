@@ -110,7 +110,11 @@ Every medicine x every target, from a Postgres job queue. See `docs/BATCH_DOCKIN
 | `progress.py` | Campaign status computed from the database. |
 | `validation.py` | QC checks and the redocking validation run that gates the full batch. |
 | `artifacts.py` | Local cache + Supabase Storage, SHA-256 verified. |
+| `calibrate.py` | Measures 1..N parallel slots on real queue jobs and picks the fastest stable count. |
 | `cli.py` | `python -m src.batchdock <command>`; wrapped by `npm run docking:*`. |
+
+`kaggle/docking_worker.ipynb` runs the same worker in a free Kaggle notebook session
+against the same queue; see `docs/KAGGLE_DOCKING.md`.
 
 ### Everything else
 
