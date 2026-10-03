@@ -53,8 +53,12 @@ export function Header({ showDocking = false }: { showDocking?: boolean }) {
 
         <nav
           aria-label="Main"
-          className="amr-navpill relative grid grid-cols-3 rounded-full"
-          style={{ ["--at" as string]: Math.max(at, 0), ["--n" as string]: NAV.length }}
+          className="amr-navpill relative grid rounded-full"
+          style={{
+            gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))`,
+            ["--at" as string]: Math.max(at, 0),
+            ["--n" as string]: NAV.length,
+          }}
           data-none={at < 0 ? "" : undefined}
         >
           <span aria-hidden="true" className="amr-navpill-ink" />
