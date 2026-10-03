@@ -6,11 +6,12 @@ import { usePathname } from "next/navigation";
 import { InvestigateSearch } from "@/components/search/InvestigateSearch";
 import { Mark } from "./Mark";
 
-const NAV = [
+const BASE_NAV = [
   { href: "/", label: "Overview" },
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/docking", label: "Docking" },
 ];
+/** Local-only: shown where the docking operations pages exist (see lib/dockingOps). */
+const DOCKING_NAV = { href: "/docking", label: "Docking" };
 
 /**
  * Identity, the two places to start, and the search once the reader is
@@ -21,7 +22,8 @@ const NAV = [
  * pill slides to the page you are on. A hairline along the lower edge fills as
  * the page is read.
  */
-export function Header() {
+export function Header({ showDocking = false }: { showDocking?: boolean }) {
+  const NAV = showDocking ? [...BASE_NAV, DOCKING_NAV] : BASE_NAV;
   const pathname = usePathname();
   const investigating = pathname.startsWith("/investigate");
   const at = NAV.findIndex((item) =>

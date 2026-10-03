@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { dockingOpsEnabled } from "@/lib/dockingOps";
+
 import { ButtonPointer } from "./ButtonPointer";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
@@ -13,7 +15,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         Skip to content
       </a>
-      <Header />
+      <Header showDocking={dockingOpsEnabled()} />
       <main id="main" className="flex-1">
         {children}
       </main>

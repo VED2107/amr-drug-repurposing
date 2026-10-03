@@ -37,6 +37,7 @@ import {
   getStudies,
   getStudyConditionsForMedicine,
 } from "@/lib/queries/investigate";
+import { dockingOpsEnabled } from "@/lib/dockingOps";
 import { getMedicineDocking } from "@/lib/queries/docking";
 import {
   DISCOVERY_THRESHOLD,
@@ -372,9 +373,11 @@ export default async function MedicinePage(props: {
                         targetName={d.proteinName}
                         href={d.pdbId ? pdbStructure(d.pdbId) : null}
                       />
-                      <a href={`/docking/${d.jobId}`} className="mt-1.5 inline-block text-[12px] text-ink-2 underline decoration-rule-strong underline-offset-4">
-                        Poses, configuration and files
-                      </a>
+                      {dockingOpsEnabled() ? (
+                        <a href={`/docking/${d.jobId}`} className="mt-1.5 inline-block text-[12px] text-ink-2 underline decoration-rule-strong underline-offset-4">
+                          Poses, configuration and files
+                        </a>
+                      ) : null}
                     </div>
                   ) : (
                     <div key={d.targetId}>
