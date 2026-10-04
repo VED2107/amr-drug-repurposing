@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------
    The two overview sections drawn from the presentation:
-   "How this site works" (slide 6) and the four bacteria (slide 5).
+   "How this site works" (slide 6) and the four pathogens (slide 5).
    Everything else on the site keeps globals.css alone.
 
    Motion is one authored moment per figure and always optional. With
@@ -250,7 +250,7 @@
   }
 }
 
-/* ===== The four bacteria: the bench ================================= */
+/* ===== The four pathogens: the bench ================================= */
 
 .amr-bench-tab {
   border: 0;
@@ -342,8 +342,7 @@
 
 /* ===== The opening figures ========================================== */
 
-/* The unit fields fill in on first paint: the honeycomb sweeps in
-   diagonally, the capsules drop into a row. */
+/* The capsules fill in on first paint, one after another along the row. */
 .amr-unit {
   transition:
     stroke 200ms ease,
@@ -376,9 +375,6 @@
 
 /* Pointing at a figure lights the units it counts. */
 @media (hover: hover) and (pointer: fine) {
-  .amr-key-molecules:hover .amr-unit {
-    stroke: var(--color-ink-2);
-  }
   .amr-pop:has(.amr-key-library:hover) .amr-units-pill .amr-unit:not(.is-marked) rect {
     fill: var(--color-sunken);
   }
@@ -390,6 +386,117 @@
   }
   .amr-key-candidates:hover .amr-bracket {
     border-bottom-width: 2px;
+  }
+}
+
+/* The molecular-dataset provenance: the split draws itself from the left,
+   one source after another, and the legend settles in beside it. Pointing at
+   a legend row isolates its share of the bar. */
+.amr-prov-seg {
+  transform-origin: left center;
+  transition: opacity 180ms ease;
+}
+.amr-prov-row {
+  transition: opacity 180ms ease;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-prov-seg {
+    animation: amr-prov-grow 640ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--i, 0) * 110ms + 200ms);
+  }
+  @keyframes amr-prov-grow {
+    from {
+      transform: scaleX(0.02);
+      opacity: 0;
+    }
+  }
+  .amr-prov-row {
+    animation: amr-prov-row-in 420ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--i, 0) * 70ms + 120ms);
+  }
+  @keyframes amr-prov-row-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-prov:has(.amr-prov-row:hover) .amr-prov-seg,
+  .amr-prov:has(.amr-prov-row:hover) .amr-prov-row {
+    opacity: 0.3;
+  }
+  .amr-prov:has(.amr-prov-row[data-part="lab"]:hover) [data-part="lab"],
+  .amr-prov:has(.amr-prov-row[data-part="library"]:hover) [data-part="library"],
+  .amr-prov:has(.amr-prov-row[data-part="other"]:hover) [data-part="other"] {
+    opacity: 1;
+  }
+}
+
+/* The hero motif: a shelf of capsules at their own small tilts, one turned
+   to a new angle in ochre. On first paint the shelf draws, the capsules settle
+   one after another, then the odd one turns with a slight overshoot. */
+.amr-motif-cap {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transform: rotate(var(--tilt, 0deg));
+}
+.amr-motif-cap.is-turned {
+  transform: translateY(-7px) rotate(-34deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .amr-motif-shelf {
+    stroke-dasharray: 1;
+    animation: amr-motif-draw 900ms var(--amr-ease-out) 100ms both;
+  }
+  .amr-motif-cap {
+    animation: amr-motif-settle 520ms var(--amr-ease-out) both;
+    animation-delay: calc(var(--i, 0) * 45ms + 200ms);
+  }
+  .amr-motif-cap.is-turned {
+    animation:
+      amr-motif-settle 520ms var(--amr-ease-out) calc(var(--i, 0) * 45ms + 200ms) both,
+      amr-motif-turn 720ms cubic-bezier(0.34, 1.4, 0.64, 1) 1050ms both;
+  }
+  @keyframes amr-motif-settle {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) rotate(var(--tilt, 0deg));
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) rotate(var(--tilt, 0deg));
+    }
+  }
+  @keyframes amr-motif-turn {
+    from {
+      transform: translateY(0) rotate(var(--tilt, 0deg));
+    }
+    to {
+      transform: translateY(-7px) rotate(-34deg);
+    }
+  }
+}
+
+/* The hero's citation mark: small, ochre, never a second accent. */
+.amr-cite {
+  margin-left: 1px;
+  text-decoration: none;
+  color: var(--color-accent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.95em;
+}
+/* Raised by position, not vertical-align, so the line box keeps its height. */
+.amr-cite sup {
+  position: relative;
+  top: -0.55em;
+  vertical-align: baseline;
+  font-size: 0.62em;
+  line-height: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .amr-cite:hover {
+    color: var(--color-ink);
   }
 }
 
@@ -580,36 +687,15 @@
     color 160ms cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* ===== Hero chain ==================================================== */
+/* ===== Hero motif: the shelf line draws itself =================== */
 
 @media (prefers-reduced-motion: no-preference) {
-  .amr-hc-draw {
-    stroke-dasharray: 1;
-    animation: amr-hc-draw 700ms cubic-bezier(0.23, 1, 0.32, 1) both;
-    animation-delay: calc(var(--i, 0) * 160ms + 250ms);
-  }
-  .amr-hc-item {
-    animation: amr-g-fade 400ms ease-out both;
-    animation-delay: calc(var(--i, 0) * 160ms + 200ms);
-  }
-  .amr-hc-dot {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: amr-hc-pop 380ms cubic-bezier(0.23, 1, 0.32, 1) both;
-    animation-delay: calc(var(--i, 0) * 160ms + 700ms);
-  }
-  @keyframes amr-hc-draw {
+  @keyframes amr-motif-draw {
     from {
       stroke-dashoffset: 1;
     }
     to {
       stroke-dashoffset: 0;
-    }
-  }
-  @keyframes amr-hc-pop {
-    from {
-      transform: scale(0.3);
-      opacity: 0;
     }
   }
 }

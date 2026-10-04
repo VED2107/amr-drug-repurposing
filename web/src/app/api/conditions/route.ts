@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
  * Condition lookup for the search and the studies filter.
  *
  * Suggestions come from conditions that registered studies in this database
- * actually name, plus the four modelled bacteria. A condition absent from the
+ * actually name, plus the four modelled pathogens. A condition absent from the
  * list can still be typed: the investigation answers for any condition, and
  * says explicitly when no model covers it.
  */

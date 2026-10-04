@@ -52,15 +52,34 @@ export const ORGANISMS: Record<
     resistanceLabel: "Resistance-related structural feature",
     resistance: "Waxy mycolic-acid-rich cell envelope",
     detail:
-      "An acid-fast bacterium whose waxy envelope, rich in mycolic acids, keeps many drugs from reaching the cell.",
+      "An acid-fast pathogen whose waxy envelope, rich in mycolic acids, keeps many drugs from reaching the cell.",
   },
 };
 
-/** Well-known repurposing stories, from the project presentation. */
-export const REPURPOSING_EXAMPLES: { name: string; from: string; to: string }[] = [
+/**
+ * Well-known repurposing stories, from the project presentation. Halicin is the
+ * odd one out and says so: never approved, its antibacterial activity was found
+ * by a deep-learning model (Stokes et al., Cell, 2020), the idea this project
+ * applies to approved medicines.
+ */
+export const REPURPOSING_EXAMPLES: {
+  name: string;
+  from: string;
+  to: string;
+  fromLabel?: string;
+  toLabel?: string;
+  note?: string;
+}[] = [
   { name: "Aspirin", from: "Pain and fever", to: "Preventing heart attacks and strokes" },
   { name: "Sildenafil", from: "Chest pain (angina)", to: "Erectile dysfunction" },
-  { name: "Thalidomide", from: "Morning sickness (1950s)", to: "Leprosy complications and multiple myeloma" },
+  {
+    name: "Halicin",
+    fromLabel: "First studied for",
+    from: "Diabetes, as the enzyme inhibitor SU3327",
+    toLabel: "Later found by AI",
+    to: "Antibacterial activity, flagged by a deep-learning model (2020)",
+    note: "Not an approved medicine; still at the laboratory stage.",
+  },
 ];
 
 /** Slide 6: the five stages, from molecule to evidence. */
@@ -93,7 +112,7 @@ export const PIPELINE: {
   },
   {
     verb: "Check fit",
-    line: "Dock every medicine against a protein from each bacterium",
+    line: "Dock every medicine against a protein from each pathogen",
     note: "Docking estimates how a molecule may fit within a selected protein binding site.",
     evidence: "computational",
     evidenceLabel: "Computer prediction",

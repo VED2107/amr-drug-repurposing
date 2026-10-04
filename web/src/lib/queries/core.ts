@@ -21,7 +21,7 @@ import type { Medicine, Pathogen, PathogenKey, Prediction } from "@/lib/types";
 /* ------------------------------------------------------------------ */
 
 /**
- * The four modelled bacteria, with the resistance coverage that limits what
+ * The four modelled pathogens, with the resistance coverage that limits what
  * their models may be said to represent.
  *
  * `resistantStrainFraction` is null rather than zero when a pathogen has no

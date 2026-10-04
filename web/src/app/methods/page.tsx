@@ -59,7 +59,7 @@ export default async function Methods() {
       {/* The whole method in four figures. */}
       <ol className="amr-journey m-0 mt-10 grid list-none grid-cols-2 gap-px overflow-hidden rounded-card border border-rule bg-rule p-0 lg:grid-cols-4">
         <Journey i={0} value={n(labelled)} text="labelled laboratory records to learn from" glyph={1} />
-        <Journey i={1} value="4" text="models, one per bacterial species" glyph={2} />
+        <Journey i={1} value="4" text="models, one per pathogen species" glyph={2} />
         <Journey i={2} value={n(figures.libraryPredictions)} text={`predictions for ${n(summary.medicines)} approved medicines`} glyph={3} />
         <Journey i={3} value={n(summary.candidates)} text="repurposing candidates, leads for the laboratory" glyph={5} accent />
       </ol>
@@ -74,7 +74,7 @@ export default async function Methods() {
       {/* How the models learned (moved here from the overview) ----------- */}
       <Section id="how-the-models-learned" title="How the models learned">
         <p className="m-0 -mt-2 mb-6 max-w-[64ch] text-[16px] leading-relaxed text-ink-2">
-          Four models, one for each bacterium, learned from published laboratory measurements. This
+          Four models, one for each pathogen, learned from published laboratory measurements. This
           is what they saw, how they learned, and what they are for.
         </p>
         <Training data={training} threshold={DISCOVERY_THRESHOLD_TEXT} />
@@ -144,7 +144,7 @@ export default async function Methods() {
           <Phase name="Prepare the data" note="From published measurements to labelled examples">
             <Step n="01" title="Gather published measurements for each species" chip={n(labelled + training.ambiguous) + " records gathered"}>
             Laboratory records from ChEMBL for MRSA, <em>E. coli</em>, <em>K. pneumoniae</em> and{" "}
-            <em>M. tuberculosis</em>: how much of a molecule it took to stop the bacterium growing.
+            <em>M. tuberculosis</em>: how much of a molecule it took to stop the pathogen growing.
             </Step>
             <Step n="02" title="Put every measurement on one scale">
             Records come in different units. Each is converted to a molar concentration, so a value in
@@ -219,7 +219,7 @@ export default async function Methods() {
           <Reading
             kind="computational"
             term="Docking score, e.g. −9.7 kcal/mol"
-            means="A computer estimate of how well the molecule fits one selected bacterial protein. More negative is a better fit."
+            means="A computer estimate of how well the molecule fits one selected pathogen protein. More negative is a better fit."
             not="Proof that the molecule binds, or that it has an antibacterial effect."
             how={`This project screens at ${DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol, its own target rather than a universal cutoff. Only a subset of medicines has been docked.`}
           />

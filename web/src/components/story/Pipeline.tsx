@@ -38,7 +38,7 @@ export function Pipeline({ figures }: { figures: PipelineFigures }) {
     { value: n(figures.validMolecules), text: "valid molecular structures, each stored as a fingerprint" },
     {
       value: n(figures.libraryPredictions),
-      text: `predictions; ${n(figures.withActivity)} medicines reach ${figures.threshold} for at least one bacterium`,
+      text: `predictions; ${n(figures.withActivity)} medicines reach ${figures.threshold} for at least one pathogen`,
     },
     figures.docking
       ? {

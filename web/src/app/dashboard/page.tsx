@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * The dashboard: the search, the library and the repurposing candidates within
- * it, the four bacteria, the downloads and the registered studies. Every figure
+ * it, the four pathogens, the downloads and the registered studies. Every figure
  * is read from the database on this request, from the same definition the lists
  * and the CSV files use.
  */
@@ -44,7 +44,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
         </h1>
         <p className="m-0 mt-4 max-w-[58ch] text-[16px] leading-relaxed text-ink-2">
           Search approved medicines for AI-predicted activity against four drug-resistant
-          bacteria, and see what evidence is already documented for each one.
+          pathogens, and see what evidence is already documented for each one.
         </p>
         <div className="mt-8">
           <InvestigateSearch />
@@ -245,8 +245,8 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
 
       <p className="m-0 mt-12 max-w-[80ch] border-t border-rule pt-4 text-[12px] leading-relaxed text-muted">
         AI-predicted activity is a model&rsquo;s estimate that a molecule is active against a
-        bacterium in the laboratory. It is not clinical effectiveness. The models describe each
-        bacterial species; the data behind them rarely records resistant strains.
+        pathogen in the laboratory. It is not clinical effectiveness. The models describe each
+        pathogen species; the data behind them rarely records resistant strains.
       </p>
     </Page>
   );

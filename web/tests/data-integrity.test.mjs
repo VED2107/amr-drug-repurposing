@@ -475,6 +475,41 @@ describe("the percentage gate holds for conditions", () => {
   });
 });
 
+describe("colitis is not E. coli", () => {
+  // "ulcerativE COLItis" contains "e coli"; an unpadded pattern read every
+  // colitis study as E. coli evidence and opened the percentage gate.
+  it("ulcerative colitis has no model and shows no percentage", async () => {
+    const page = await html("/investigate?condition=Ulcerative%20Colitis");
+    assert.ok(/No AI activity model is currently available for this condition/.test(page));
+    assert.ok(!/Supported pathogen/.test(page));
+    assert.ok(!PERCENT_WITH_LABEL.test(page), "no AI percentage at all");
+  });
+
+  it("the E. coli page lists no colitis-only study", async () => {
+    const page = await html("/investigate?condition=E.%20coli%20infection");
+    assert.ok(/Supported pathogen/.test(page));
+    assert.ok(!/Ulcerative Colitis/i.test(readable(page)), "no ulcerative colitis study under E. coli");
+  });
+});
+
+describe("medicine search answers with the medicine searched for", () => {
+  // A combination product is stored once per ingredient, each row carrying the
+  // product's brand, so brand matching once answered "aspirin" with butalbital.
+  const names = async (q) =>
+    (await (await fetch(`${BASE_URL}/api/search?q=${encodeURIComponent(q)}`)).json()).map((h) => h.name);
+
+  it("a generic name finds that medicine, not its combination partners", async () => {
+    assert.deepEqual(await names("aspirin"), ["ASPIRIN"]);
+    assert.deepEqual(await names("cipro"), ["CIPROFLOXACIN"]);
+  });
+
+  it("a combination brand still finds its ingredients, and says so", async () => {
+    const hits = await (await fetch(`${BASE_URL}/api/search?q=aggrenox`)).json();
+    assert.deepEqual(hits.map((h) => h.name).sort(), ["ASPIRIN", "DIPYRIDAMOLE"]);
+    for (const h of hits) assert.match(h.note, /AGGRENOX, a combination product/);
+  });
+});
+
 describe("registered studies filter by condition", () => {
   it("dashboard filter matches the registry rows", async () => {
     const [row] = await sql`

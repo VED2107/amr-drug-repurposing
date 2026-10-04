@@ -25,6 +25,14 @@ export interface StoryFigures {
    * library, never added to it.
    */
   validMolecules: number;
+  /**
+   * Where those structures come from, as three parts that sum to
+   * `validMolecules`: structures with laboratory records against the four
+   * pathogens (outside the library), structures in the approved-medicine
+   * library, and the remaining ChEMBL entries. `dropped` counts structures
+   * RDKit could not read; they are excluded, not repaired.
+   */
+  molecularSources: { labTested: number; library: number; other: number; dropped: number };
   /** Laboratory activity records carrying an active/inactive label. */
   labelledLabRecords: number;
   /** Current-model predictions for library medicines (medicines × pathogens). */
@@ -47,6 +55,13 @@ export async function getStoryFigures(): Promise<StoryFigures> {
     queryOne<Record<string, unknown>>(
       `select
          (select count(*) from molecules where is_valid)                       as n,
+         (select count(*) from molecules where not is_valid)                   as dropped,
+         (select count(*) from molecules
+           where is_valid and molecule_id in ${LIBRARY})                        as in_library,
+         (select count(*) from molecules m
+           where m.is_valid and m.molecule_id not in ${LIBRARY}
+             and exists (select 1 from bioactivity b
+                         where b.molecule_id = m.molecule_id))                  as lab_tested,
          (select count(*) from bioactivity where label is not null)            as labelled,
          (select count(*) from predictions p ${ACTIVE}
            where p.molecule_id in ${LIBRARY})                                   as predictions,
@@ -59,8 +74,17 @@ export async function getStoryFigures(): Promise<StoryFigures> {
     query<Record<string, unknown>>(`select pathogen_key, name, pdb_id from targets`),
     getDockingFigures(),
   ]);
+  const valid = toNum(row?.n) ?? 0;
+  const inLibrary = toNum(row?.in_library) ?? 0;
+  const labTested = toNum(row?.lab_tested) ?? 0;
   return {
-    validMolecules: toNum(row?.n) ?? 0,
+    validMolecules: valid,
+    molecularSources: {
+      labTested,
+      library: inLibrary,
+      other: Math.max(0, valid - inLibrary - labTested),
+      dropped: toNum(row?.dropped) ?? 0,
+    },
     labelledLabRecords: toNum(row?.labelled) ?? 0,
     libraryPredictions: toNum(row?.predictions) ?? 0,
     dockedMedicines: docking?.medicines ?? toNum(row?.docked) ?? 0,

@@ -5,12 +5,12 @@ import { Page } from "@/components/primitives";
 import { InvestigateSearch } from "@/components/search/InvestigateSearch";
 import { BacteriaBench } from "@/components/story/BacteriaBench";
 import { Pipeline } from "@/components/story/Pipeline";
-import { HeroChain } from "@/components/story/HeroChain";
+import { HeroMotif } from "@/components/story/HeroMotif";
 import { MethodLink } from "@/components/story/MethodLink";
 import { OrganismCell } from "@/components/story/diagrams";
 import { REPURPOSING_EXAMPLES } from "@/lib/content";
 import { getRepurposingSummary } from "@/lib/queries/repurposing";
-import { getStoryFigures } from "@/lib/queries/story";
+import { getStoryFigures, type StoryFigures } from "@/lib/queries/story";
 import { DISCOVERY_THRESHOLD_TEXT } from "@/lib/science";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +30,24 @@ export default async function Overview() {
           <h1 className="m-0 max-w-[16ch] text-balance font-display text-[clamp(38px,6.4vw,84px)] font-semibold leading-[0.98] tracking-[-0.035em] text-ink">
             Old medicines, new questions.
           </h1>
-          <p className="m-0 mt-6 max-w-[58ch] text-[17px] leading-relaxed text-ink-2">
-            Bacteria are becoming resistant to the antibiotics we rely on, and new antibiotics
-            take many years to develop. This project asks a faster question: could a medicine that
-            is <strong className="font-semibold text-ink">already approved</strong> for something
-            else also act against a drug-resistant bacterium?
+          <p className="m-0 mt-6 max-w-[60ch] text-pretty text-[17px] leading-relaxed text-ink-2">
+            Multi-drug resistant superbugs are evolving faster than our ability to create treatments,
+            causing 1.27&nbsp;million deaths globally every year.
+            <a
+              href="https://doi.org/10.1016/S0140-6736(21)02724-0"
+              target="_blank"
+              rel="noreferrer"
+              className="amr-cite"
+              title="Antimicrobial Resistance Collaborators, The Lancet, 2022: deaths directly attributable to resistant infections, estimated for 2019"
+            >
+              <sup>1</sup>
+              <span className="sr-only">Source: The Lancet, 2022</span>
+            </a> This model asks a faster question:
+            could a medicine that is <strong className="font-semibold text-ink">already approved</strong>{" "}
+            for something else also act against a drug-resistant superbug?
           </p>
-          <div className="mt-7 border-y border-rule py-4">
-            <HeroChain />
+          <div className="mt-8 max-w-[600px]">
+            <HeroMotif />
           </div>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/dashboard" className="amr-btn">
@@ -52,6 +62,7 @@ export default async function Overview() {
 
         <PopulationPanel
           molecules={figures.validMolecules}
+          sources={figures.molecularSources}
           medicines={summary.medicines}
           candidates={summary.candidates}
           studies={summary.registeredStudies}
@@ -65,7 +76,7 @@ export default async function Overview() {
       >
         <ul className="m-0 grid list-none gap-3 p-0 md:grid-cols-3">
           {REPURPOSING_EXAMPLES.map((e) => (
-            <li key={e.name} className="amr-repurpose rounded-card border border-rule bg-raised p-5 md:p-6">
+            <li key={e.name} className="amr-repurpose flex flex-col rounded-card border border-rule bg-raised p-5 md:p-6">
               <p className="m-0 flex items-center gap-2.5 font-display text-[18px] font-semibold text-ink">
                 <svg viewBox="0 0 30 14" width="30" height="14" aria-hidden="true" className="shrink-0">
                   <path d="M15 1 h7 a6 6 0 0 1 0 12 H15 Z" fill="#f5e6d8" />
@@ -78,17 +89,24 @@ export default async function Overview() {
               <div className="amr-track-v relative mt-4 grid grid-cols-[14px_minmax(0,1fr)] gap-x-3">
                 <span aria-hidden="true" className="mt-[5px] h-[9px] w-[9px] rounded-full border border-ink-2 bg-raised" />
                 <p className="m-0">
-                  <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">First used for</span>
+                  <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-muted">{e.fromLabel ?? "First used for"}</span>
                   <span className="mt-1 block text-[14px] leading-snug text-ink-2">{e.from}</span>
                 </p>
                 <span aria-hidden="true" className="amr-track-v-node mt-4 flex h-[14px] w-[14px] items-center justify-center rounded-full bg-accent text-[9px] leading-none text-paper">
                   ↓
                 </span>
                 <p className="m-0 mt-3.5">
-                  <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-accent">Later also used for</span>
+                  <span className="block font-mono text-[10px] uppercase tracking-[0.12em] text-accent">{e.toLabel ?? "Later also used for"}</span>
                   <span className="mt-1 block text-[14px] leading-snug text-ink">{e.to}</span>
                 </p>
               </div>
+              {e.note ? (
+                <p className="m-0 mt-auto pt-4">
+                  <span className="block border-t border-rule-soft pt-3 font-mono text-[10.5px] leading-relaxed tracking-[0.02em] text-muted">
+                    {e.note}
+                  </span>
+                </p>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -115,14 +133,14 @@ export default async function Overview() {
         />
       </Chapter>
 
-      {/* --- Bacteria ------------------------------------------------------ */}
+      {/* --- Pathogens ------------------------------------------------------ */}
       <section id="how-the-models-learned" aria-label="The full method" className="mt-14">
         <MethodLink />
       </section>
 
       <Chapter
         id="bacteria"
-        title="Four bacteria. Four different resistance problems."
+        title="Four pathogens. Four different resistance problems."
         lede="Only these four can show a percentage. Any other condition shows documented evidence only."
       >
         <BacteriaBench
@@ -141,7 +159,7 @@ export default async function Overview() {
           </span>
           <span>
             The models in this project provide AI-predicted activity only for these four species. They
-            are not predictions for every bacterial species or every resistant strain: the models learn
+            are not predictions for every pathogen species or every resistant strain: the models learn
             patterns from previous laboratory measurements, and they do not directly simulate a
             patient&rsquo;s response. Diagrams are schematic, not to scale.
           </span>
@@ -168,19 +186,21 @@ export default async function Overview() {
 /**
  * The opening figures, as two populations that are never summed.
  *
- * A unit chart: one dot for about a hundred. The broader molecular dataset is
- * a dense field; the approved-medicine library that is actually screened is a
- * small, separate cluster below a "different population" rule, with its
- * repurposing candidates marked in indigo. Registered studies count studies,
- * not medicines, so they are listed beside the chart rather than drawn in it.
+ * The broader molecular dataset is read as provenance: where its structures
+ * come from, split to scale. The approved-medicine library that is actually
+ * screened is a separate sheet, a unit chart of capsules with its repurposing
+ * candidates marked in indigo. Registered studies count studies, not
+ * medicines, so they are listed beside the chart rather than drawn in it.
  */
 function PopulationPanel({
   molecules,
+  sources,
   medicines,
   candidates,
   studies,
 }: {
   molecules: number;
+  sources: StoryFigures["molecularSources"];
   medicines: number;
   candidates: number;
   studies: number;
@@ -191,20 +211,8 @@ function PopulationPanel({
   const marked = Math.round(candidates / UNIT);
   return (
     <div className="amr-pop flex flex-col gap-3">
-      {/* Sheet one: the broader molecular dataset. */}
-      <div className="amr-key-molecules grid items-center gap-x-6 gap-y-4 rounded-card border border-rule bg-raised px-6 py-5 sm:grid-cols-[auto_minmax(0,1fr)] md:px-7">
-        <div>
-          <p className="m-0 font-mono text-[11px] uppercase tracking-[0.12em] text-muted">Broader molecular dataset</p>
-          <p className="m-0 mt-3 font-mono text-[clamp(56px,6vw,84px)] font-medium leading-[0.85] tracking-[-0.04em] text-ink">
-            {`${Math.floor(molecules / 1000)}K`}
-          </p>
-          <p className="m-0 mt-3 max-w-[22ch] text-[14px] leading-snug text-ink-2">
-            molecular structures the research pipeline learns from{" "}
-            <span className="whitespace-nowrap font-mono text-[12px] text-muted">({n(molecules)})</span>
-          </p>
-        </div>
-        <UnitField count={Math.round(molecules / UNIT)} shape="hex" />
-      </div>
+      {/* Sheet one: the broader molecular dataset, read as provenance. */}
+      <MolecularSources total={molecules} sources={sources} />
 
       {/* Sheet two: the approved-medicine library, the population screened. */}
       <div className="rounded-card border border-rule bg-raised px-6 pb-5 pt-5 md:px-7">
@@ -217,7 +225,7 @@ function PopulationPanel({
         </p>
 
         <div className="mt-4 max-w-[400px]">
-          <UnitField count={pills} marked={marked} shape="pill" />
+          <UnitField count={pills} marked={marked} />
           {/* The bracket: under the indigo capsules, naming what they are. */}
           <div className="amr-key-candidates relative mt-1.5" style={{ width: `${(marked / pills) * 100}%` }}>
             <span aria-hidden="true" className="amr-bracket block h-2 border-x border-b border-computational" />
@@ -227,7 +235,7 @@ function PopulationPanel({
           </div>
           <p className="m-0 mt-1.5 text-[13px] leading-snug text-ink-2">
             repurposing candidates: not already antibacterials, with AI-predicted activity{" "}
-            {DISCOVERY_THRESHOLD_TEXT} against at least one bacterium
+            {DISCOVERY_THRESHOLD_TEXT} against at least one pathogen
           </p>
         </div>
 
@@ -239,7 +247,7 @@ function PopulationPanel({
           <span className="text-[13px] text-ink-2">registered clinical studies linked to them</span>
         </p>
         <p className="m-0 mt-4 font-mono text-[10.5px] leading-relaxed text-faint">
-          One hexagon ≈ {UNIT} molecular structures. One capsule ≈ {UNIT} medicines. Rounded.
+          One capsule ≈ {UNIT} medicines. Rounded.
         </p>
       </div>
     </div>
@@ -247,55 +255,99 @@ function PopulationPanel({
 }
 
 /**
- * A field of units, one per ~100. Molecules are drawn as small hexagons in a
- * honeycomb, medicines as small capsules; the first `marked` capsules are the
- * repurposing candidates, in indigo.
+ * Where the broader molecular dataset comes from. Every structure carries a
+ * ChEMBL identifier and was standardised before use; the bar splits the total
+ * into three parts that sum to it, so the reader can see how few of the
+ * structures are approved medicines. Unreadable structures are counted, not
+ * drawn: they were dropped, not repaired.
  */
-function UnitField({
-  count,
-  shape,
-  marked = 0,
-  className = "",
+function MolecularSources({
+  total,
+  sources,
 }: {
-  count: number;
-  shape: "hex" | "pill";
-  marked?: number;
-  className?: string;
+  total: number;
+  sources: StoryFigures["molecularSources"];
 }) {
-  const COLS = shape === "hex" ? 17 : count;
-  const SX = shape === "hex" ? 11.5 : 20;
-  const SY = shape === "hex" ? 10 : 12;
-  const rows = Math.ceil(count / COLS);
-  const width = COLS * SX + (shape === "hex" ? SX / 2 : 0);
+  const n = (v: number) => v.toLocaleString("en-GB");
+  const parts = [
+    { key: "lab", value: sources.labTested, label: "with laboratory records against the four pathogens", tone: "bg-experimental" },
+    { key: "library", value: sources.library, label: "approved medicines in the screened library", tone: "bg-ink" },
+    { key: "other", value: sources.other, label: "other ChEMBL compounds", tone: "bg-rule-strong" },
+  ].filter((p) => p.value > 0);
+  return (
+    <div className="amr-key-molecules amr-prov rounded-card border border-rule bg-raised px-6 py-5 md:px-7">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="m-0 font-mono text-[11px] uppercase tracking-[0.12em] text-muted">Broader molecular dataset</p>
+        <p className="m-0 inline-flex items-center gap-1.5 rounded-full border border-rule px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-2">
+          <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-experimental" />
+          Source · ChEMBL
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-x-8 gap-y-5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-end">
+        <div>
+          <p className="m-0 font-mono text-[clamp(46px,5vw,68px)] font-medium leading-[0.85] tracking-[-0.04em] text-ink">
+            {`${Math.floor(total / 1000)}K`}
+          </p>
+          <p className="m-0 mt-3 text-[15px] font-medium leading-snug text-ink">Molecular structures</p>
+          <p className="m-0 mt-1 max-w-[30ch] text-[13px] leading-snug text-ink-2">
+            Extracted from ChEMBL, an open database of bioactive molecules
+          </p>
+        </div>
+
+        <dl className="m-0 grid gap-1.5">
+          {parts.map((p, i) => (
+            <div
+              key={p.key}
+              data-part={p.key}
+              className="amr-prov-row grid grid-cols-[10px_minmax(0,1fr)_auto] items-baseline gap-x-2.5"
+              style={{ ["--i" as string]: i }}
+            >
+              <span aria-hidden="true" className={`h-2 w-2 translate-y-[-1px] rounded-[2px] ${p.tone}`} />
+              <dt className="text-[12.5px] leading-snug text-ink-2">{p.label}</dt>
+              <dd className="m-0 font-mono text-[12.5px] tabular-nums text-ink">{n(p.value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      {/* The split, drawn to scale. */}
+      <div className="amr-prov-bar mt-5 flex h-2.5 gap-[2px] overflow-hidden rounded-full" aria-hidden="true">
+        {parts.map((p, i) => (
+          <span
+            key={p.key}
+            data-part={p.key}
+            className={`amr-prov-seg block h-full ${p.tone}`}
+            style={{ flexGrow: p.value, flexBasis: 0, minWidth: 3, ["--i" as string]: i }}
+          />
+        ))}
+      </div>
+
+      <p className="m-0 mt-3 font-mono text-[10.5px] leading-relaxed text-faint">
+        {n(total)} valid structures. Only {n(sources.library)} are approved medicines.
+        {sources.dropped > 0 ? ` ${n(sources.dropped)} that could not be read were dropped, not repaired.` : ""}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The approved-medicine library as a row of capsules, one per ~100; the first
+ * `marked` are the repurposing candidates, in indigo.
+ */
+function UnitField({ count, marked = 0 }: { count: number; marked?: number }) {
+  const SX = 20;
+  const SY = 12;
   return (
     <svg
-      viewBox={`0 0 ${width} ${rows * SY + 2}`}
-      className={`amr-units amr-units-${shape} block h-auto ${shape === "hex" ? "w-full" : "w-full max-w-[400px]"} ${className}`}
+      viewBox={`0 0 ${count * SX} ${SY + 2}`}
+      className="amr-units amr-units-pill block h-auto w-full max-w-[400px]"
       aria-hidden="true"
     >
       {Array.from({ length: count }, (_, i) => {
-        const r = Math.floor(i / COLS);
-        const c = i % COLS;
-        const style = { ["--r" as string]: r, ["--c" as string]: c };
-        if (shape === "hex") {
-          const cx = c * SX + SX / 2 + (r % 2 ? SX / 2 : 0);
-          const cy = r * SY + SY / 2 + 1;
-          const R = 4.2;
-          const w = R * 0.866;
-          return (
-            <path
-              key={i}
-              className="amr-unit"
-              style={style}
-              d={`M${cx} ${cy - R}L${cx + w} ${cy - R / 2}L${cx + w} ${cy + R / 2}L${cx} ${cy + R}L${cx - w} ${cy + R / 2}L${cx - w} ${cy - R / 2}Z`}
-              fill="none"
-              stroke="var(--color-rule-strong)"
-              strokeWidth="1.1"
-            />
-          );
-        }
-        const x = c * SX + 2;
-        const y = r * SY + 2;
+        const style = { ["--r" as string]: 0, ["--c" as string]: i };
+        const x = i * SX + 2;
+        const y = 2;
         const on = i < marked;
         return (
           <g key={i} className={`amr-unit ${on ? "is-marked" : ""}`} style={style}>

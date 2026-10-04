@@ -27,7 +27,7 @@ export function Training({ data, threshold }: { data: TrainingFigures; threshold
       {/* 1 · The ruler ------------------------------------------------------ */}
       <Reveal className="amr-train rounded-card border border-rule bg-raised p-5 md:p-7">
         <StepHead n="1" title="Each laboratory measurement becomes a label">
-          A record says how much of a molecule it took to stop the bacterium growing. Less is more
+          A record says how much of a molecule it took to stop the pathogen growing. Less is more
           potent.
         </StepHead>
 
@@ -70,7 +70,7 @@ export function Training({ data, threshold }: { data: TrainingFigures; threshold
       <div className="grid gap-4 lg:grid-cols-2">
         {/* 2 · Per pathogen -------------------------------------------------- */}
         <Reveal className="amr-train rounded-card border border-rule bg-raised p-5 md:p-7">
-          <StepHead n="2" title="One model per bacterium, each with its own records">
+          <StepHead n="2" title="One model per pathogen, each with its own records">
             The bar is every labelled record for that species. The ochre line beneath is the share
             measured on a named resistant strain.
           </StepHead>
@@ -144,7 +144,7 @@ export function Training({ data, threshold }: { data: TrainingFigures; threshold
             <li className="flex gap-2.5"><Cross />Whether a medicine treats an infection in a patient.</li>
             <li className="flex gap-2.5"><Cross />Whether it works against the resistant strain specifically.</li>
             <li className="flex gap-2.5"><Cross />What dose would be needed, or whether that dose is safe.</li>
-            <li className="flex gap-2.5"><Cross />Anything about bacteria other than these four.</li>
+            <li className="flex gap-2.5"><Cross />Anything about pathogens other than these four.</li>
           </ul>
         </div>
       </div>

@@ -10,7 +10,7 @@
  * string, or as "none". See `EvidenceRung` for how absence is expressed.
  */
 
-/** The four bacteria that have a trained model. Nothing else may show a probability. */
+/** The four pathogens that have a trained model. Nothing else may show a probability. */
 export type PathogenKey = "mrsa" | "ecoli" | "kpneumoniae" | "mtb";
 
 export const PATHOGEN_KEYS: readonly PathogenKey[] = [

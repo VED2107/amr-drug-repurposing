@@ -59,7 +59,7 @@ export function LiveProgress({ initial }: { initial: DockingStatus }) {
 
       <div className="mt-4 flex flex-wrap items-end gap-x-10 gap-y-4">
         <Big value={n(s.medicines.total)} label="medicines" />
-        <Big value={`× ${n(s.targets.length)}`} label="bacterial protein targets" />
+        <Big value={`× ${n(s.targets.length)}`} label="pathogen protein targets" />
         <Big value={n(j.expected)} label="docking jobs" />
       </div>
 
@@ -132,7 +132,7 @@ function PriorityPhase({
   return (
     <p className="m-0 mt-4 text-[13px] leading-snug text-ink-2">
       <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted">Docking first · </span>
-      the {n(phase.size)} medicines the AI models rank highest for any of the four bacteria:{" "}
+      the {n(phase.size)} medicines the AI models rank highest for any of the four pathogens:{" "}
       <span className="font-mono tabular-nums text-ink">
         {n(phase.finished)} / {n(phase.size)}
       </span>{" "}

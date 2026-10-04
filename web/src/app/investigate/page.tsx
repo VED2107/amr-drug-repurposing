@@ -309,7 +309,7 @@ const EVIDENCE: { value: "" | EvidenceFilter; label: string }[] = [
 ];
 
 /**
- * `/investigate?pathogen=…`: every repurposing candidate for one bacterium,
+ * `/investigate?pathogen=…`: every repurposing candidate for one pathogen,
  * searchable and paged. Its total is the dashboard's figure for this pathogen,
  * because both come from the same definition (`candidateFilter`).
  */

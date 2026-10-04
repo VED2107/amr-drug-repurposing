@@ -10,7 +10,7 @@ type Mode = "medicine" | "condition";
 /* Condition comes first: condition → pathogen → documented medicines → other
    medicines to investigate is the site's main repurposing question. */
 const MODES: { key: Mode; label: string; placeholder: string; short: string }[] = [
-  { key: "condition", label: "Pathogen coverage", placeholder: "Search a disease or bacterium, e.g. Tuberculosis", short: "e.g. Tuberculosis" },
+  { key: "condition", label: "Pathogen coverage", placeholder: "Search a disease or pathogen, e.g. Tuberculosis", short: "e.g. Tuberculosis" },
   { key: "medicine", label: "Medicine", placeholder: "Search a medicine, e.g. Levoketoconazole", short: "e.g. Levoketoconazole" },
 ];
 

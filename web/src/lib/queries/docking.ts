@@ -85,7 +85,7 @@ export interface DockingStatus {
   /**
    * A priority phase: some queued jobs were moved ahead of the rest (priority < 0).
    * The phase is the PRIORITY_PHASE_SIZE medicines with the highest ACTIVE-model
-   * probability for any of the four bacteria, ties by ligand id, the rule the
+   * probability for any of the four pathogens, ties by ligand id, the rule the
    * queue was reordered with. Null when no phase is set up.
    */
   priorityPhase: { size: number; finished: number; jobsLeft: number } | null;

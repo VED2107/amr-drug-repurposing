@@ -67,7 +67,7 @@ export default async function MedicinePage(props: {
   const studyCondition = (firstValue(params, "sc") ?? "").trim();
   const chosen = firstValue(params, "p");
   const candidatePage = numberParam(params, "cp") ?? 1;
-  // When the reader has picked a bacterium, its list does not wait for the
+  // When the reader has picked a pathogen, its list does not wait for the
   // medicine's own predictions and can start with everything else.
   const early = isPathogenKey(chosen)
     ? getRepurposingCandidates({ pathogenKey: chosen, exclude: moleculeId, page: candidatePage })
@@ -164,7 +164,7 @@ export default async function MedicinePage(props: {
   const labPathogens = measured ? PATHOGEN_KEYS.filter((k) => measured[k]?.records) : [];
   const use = usesMap?.get(moleculeId);
   const qualifying = PATHOGEN_KEYS.filter((k) => (predictionFor(k)?.probability ?? 0) >= DISCOVERY_THRESHOLD);
-  // The bacterium the reader came from reads first.
+  // The pathogen the reader came from reads first.
   const reasons = isPathogenKey(chosen) && qualifying.includes(chosen)
     ? [chosen, ...qualifying.filter((k) => k !== chosen)]
     : qualifying;
@@ -241,7 +241,7 @@ export default async function MedicinePage(props: {
             </>
           ) : (
             <>
-              No supported bacterium reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted activity for{" "}
+              No supported pathogen reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted activity for{" "}
               {name}, so it is not among the repurposing candidates. Its predictions are shown below.
             </>
           )}
@@ -274,7 +274,7 @@ export default async function MedicinePage(props: {
             })}
           </ul>
           <p className="m-0 mt-3 text-[12px] leading-relaxed text-muted">
-            A model&rsquo;s estimate of laboratory activity against each bacterial species. It is
+            A model&rsquo;s estimate of laboratory activity against each pathogen species. It is
             not clinical effectiveness.
           </p>
         </ComputationalBlock>
@@ -320,7 +320,7 @@ export default async function MedicinePage(props: {
                   <QueryUnavailable>Could not load lab records right now.</QueryUnavailable>
                 ) : labPathogens.length === 0 ? (
                   <StateNote kind="none" head="No evidence found">
-                    No laboratory measurement against the four bacteria in the ChEMBL records
+                    No laboratory measurement against the four pathogens in the ChEMBL records
                     loaded here.
                   </StateNote>
                 ) : (
@@ -412,7 +412,7 @@ export default async function MedicinePage(props: {
                   ),
                 )}
                 <p className="m-0 text-[12px] leading-snug text-muted">
-                  AutoDock Vina, one experimentally solved protein per bacterium. This project&rsquo;s
+                  AutoDock Vina, one experimentally solved protein per pathogen. This project&rsquo;s
                   screening target is {DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol, its own mark
                   rather than a universal cutoff. A docking score is a structural hypothesis, not proof of
                   binding, and requires experimental validation.
@@ -453,12 +453,12 @@ export default async function MedicinePage(props: {
         <ComputationalBlock id="candidates" title="Other medicines to investigate">
           <p className="m-0 max-w-[76ch] text-[13px] leading-relaxed text-ink-2">
             Other repurposing candidates: approved medicines besides {name} with AI-predicted
-            activity {DISCOVERY_THRESHOLD_TEXT} against the chosen bacterium, leaving out existing
+            activity {DISCOVERY_THRESHOLD_TEXT} against the chosen pathogen, leaving out existing
             antibacterials. They are computational candidates for further investigation, not
             alternatives and not recommendations.
           </p>
 
-          <nav aria-label="Bacterium" className="amr-species mt-4 inline-flex flex-wrap gap-1 rounded-[26px] bg-sunken p-1">
+          <nav aria-label="Pathogen" className="amr-species mt-4 inline-flex flex-wrap gap-1 rounded-[26px] bg-sunken p-1">
             {PATHOGEN_KEYS.map((k) => {
               const on = k === focus;
               return (
@@ -492,7 +492,7 @@ export default async function MedicinePage(props: {
               />
             ) : (
               <p className="m-0 text-[13px] leading-relaxed text-ink-2">
-                {name} has no AI prediction. Choose a bacterium above to see the medicines that do.
+                {name} has no AI prediction. Choose a pathogen above to see the medicines that do.
               </p>
             )}
           </div>

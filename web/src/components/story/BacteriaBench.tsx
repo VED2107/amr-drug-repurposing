@@ -17,7 +17,7 @@ export interface OrganismData {
 }
 
 /**
- * The four bacteria as a small interactive bench.
+ * The four pathogens as a small interactive bench.
  *
  * Slide 5 of the presentation shows each species as a cross-section with its
  * resistance feature marked in ochre. Here the reader picks a species, sees its
@@ -63,7 +63,7 @@ export function BacteriaBench({ items, threshold }: { items: OrganismData[]; thr
       {/* The comparison row: all four at once, as on the slide. */}
       <div
         role="tablist"
-        aria-label="Pathogen coverage: the four bacterial species"
+        aria-label="Pathogen coverage: the four pathogen species"
         className="grid grid-cols-2 gap-px overflow-hidden rounded-card border border-rule bg-rule lg:grid-cols-4"
       >
         {items.map((p, i) => {
@@ -215,7 +215,7 @@ interface Note {
 /** Each note restates the slide's own wording for that species. */
 const ANNOTATIONS: Record<PathogenKey, Note[]> = {
   mrsa: [
-    { text: "Thick cell wall of a Gram-positive bacterium", x: 268, y: 92 },
+    { text: "Thick cell wall of a Gram-positive pathogen", x: 268, y: 92 },
     { text: "PBP2a, the altered target", x: 256, y: 128 },
     { text: "The beta-lactam binds the altered target poorly and does not hold", x: 92, y: 80 },
   ],
@@ -225,7 +225,7 @@ const ANNOTATIONS: Record<PathogenKey, Note[]> = {
     { text: "A drug that does enter is pushed back out", x: 352, y: 168 },
   ],
   kpneumoniae: [
-    { text: "Outer membrane of a Gram-negative bacterium", x: 276, y: 88 },
+    { text: "Outer membrane of a Gram-negative pathogen", x: 276, y: 88 },
     { text: "Carbapenemase enzymes in the envelope", x: 190, y: 40 },
     { text: "The carbapenem is destroyed before it reaches the cell", x: 64, y: 176 },
   ],

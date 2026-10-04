@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Molecular docking",
   description:
-    "AutoDock Vina docking of every approved medicine in the library against the selected bacterial protein targets: live progress and results.",
+    "AutoDock Vina docking of every approved medicine in the library against the selected pathogen protein targets: live progress and results.",
 };
 
 const STATUS_TEXT: Record<string, string> = {
@@ -73,7 +73,7 @@ export default async function DockingPage(props: { searchParams: Promise<RawSear
         </h1>
         <p className="m-0 mt-4 max-w-[62ch] text-[16px] leading-relaxed text-ink-2">
           Every approved medicine in the library is docked with AutoDock Vina into one experimentally
-          solved protein from each of the four bacteria. Each job is a real Vina run; its score, poses,
+          solved protein from each of the four pathogens. Each job is a real Vina run; its score, poses,
           inputs and settings are stored and can be downloaded.
         </p>
       </header>
@@ -185,7 +185,7 @@ export default async function DockingPage(props: { searchParams: Promise<RawSear
 
           <section aria-labelledby="targets-h" className="mt-4 rounded-card border border-rule bg-raised p-4 md:p-5">
             <h2 id="targets-h" className="m-0 text-[13px] font-medium text-ink-2">
-              Bacterial protein targets
+              Pathogen protein targets
             </h2>
             <ul className="m-0 mt-4 grid list-none gap-4 p-0 sm:grid-cols-2 lg:grid-cols-4">
               {status.targets.map((t) => (
