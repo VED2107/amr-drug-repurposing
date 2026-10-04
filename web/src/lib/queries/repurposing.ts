@@ -52,7 +52,7 @@ export interface CandidateFilterOptions {
   name?: string;
   /** Existing / approved use contains. */
   use?: string;
-  /** Activity range for `pathogenKey`, as fractions. */
+  /** Activity range for `pathogenKey`, as fractions: [min, max), or [min, 1]. */
   min?: number;
   max?: number;
   evidence?: EvidenceFilter;
@@ -118,11 +118,14 @@ export function candidateFilter(options: CandidateFilterOptions = {}): {
     params.push(use, use, use, use);
   }
   if (options.pathogenKey && (options.min !== undefined || options.max !== undefined)) {
+    // Ranges are half-open, [min, max), so a probability of exactly 0.6 falls
+    // in 60–80% and not also in 40–60%; only a range ending at 1 includes it.
+    const max = options.max ?? 1;
     where.push(
       `one.molecule_id in (select p.molecule_id from predictions p ${ACTIVE}
-         where p.pathogen_key = ? and p.probability >= ? and p.probability <= ?)`,
+         where p.pathogen_key = ? and p.probability >= ? and p.probability ${max >= 1 ? "<=" : "<"} ?)`,
     );
-    params.push(options.pathogenKey, options.min ?? 0, options.max ?? 1);
+    params.push(options.pathogenKey, options.min ?? 0, max);
   }
   if (options.evidence) {
     const lab = options.pathogenKey

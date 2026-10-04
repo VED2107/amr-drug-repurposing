@@ -746,6 +746,89 @@ describe("each pathogen opens its complete list of repurposing candidates", () =
   });
 });
 
+describe("each dashboard pathogen card opens only that pathogen's candidates", () => {
+  // Every page of the list, reached from the card's own link, must be exactly
+  // the candidates predicted active (at or above the floor) against that
+  // pathogen: no medicine predicted only against another pathogen, none missed.
+  for (const key of PATHOGENS) {
+    it(`${key}: the card's list is exactly its own candidate set`, async () => {
+      const dashboard = readable(await html("/dashboard"));
+      const href = `/investigate?pathogen=${key}`;
+      assert.ok(dashboard.includes(`href="${href}"`), "the card links to its own pathogen");
+
+      const ids = await candidateIds(key);
+      const seen = [];
+      for (let n = 1; n <= Math.max(1, Math.ceil(ids.size / 24)); n++) {
+        const page = await html(`${href}&page=${n}`);
+        for (const m of page.matchAll(/href="\/investigate\/([A-Z0-9-]+)\?p=([a-z]+)"/g)) {
+          assert.equal(m[2], key, `${m[1]} links on with its own pathogen`);
+          seen.push(m[1]);
+        }
+      }
+      const listed = new Set(seen);
+      for (const id of listed) assert.ok(ids.has(id), `${id} is predicted active against ${key}`);
+      assert.deepEqual(listed, ids, "the pages together are the candidate set");
+
+      // A medicine that is a candidate for another pathogen only never appears.
+      const others = new Set();
+      for (const other of PATHOGENS.filter((k) => k !== key)) {
+        for (const id of await candidateIds(other)) if (!ids.has(id)) others.add(id);
+      }
+      for (const id of others) assert.ok(!listed.has(id), `${id} belongs to another pathogen's list`);
+    });
+  }
+
+  it("the activity ranges partition each list: none counted twice", async () => {
+    const counts = async (key, range) => {
+      const page = readable(await html(`/investigate?pathogen=${key}${range ? `&range=${range}` : ""}`));
+      const m = range ? /([\d,]+) of [\d,]+ repurposing candidates match/.exec(page) : /All ([\d,]+) repurposing candidates/.exec(page);
+      assert.ok(m, `${key} ${range || "all"} shows a count`);
+      return Number(m[1].replace(/,/g, ""));
+    };
+    for (const key of PATHOGENS) {
+      const total = await counts(key, "");
+      const parts = [await counts(key, "40-60"), await counts(key, "60-80"), await counts(key, "80-100")];
+      assert.equal(parts.reduce((a, b) => a + b, 0), total, `${key}: ${parts.join(" + ")} = ${total}`);
+    }
+  });
+});
+
+describe("a condition page reconciles with its pathogen page", () => {
+  // MRSA: the pathogen page lists every repurposing candidate; the "MRSA
+  // infection" page lists those candidates minus the ones already documented
+  // there (a registered study for the condition, or a laboratory record
+  // against MRSA). Both figures, and the difference, must be stated.
+  const MRSA_TERMS = ["mrsa", "methicillin-resistant", "methicillin resistant", "staphylococcus aureus", "staph aureus", "mrsa infection"];
+  const padded = "(' ' || replace(lower(ct.conditions), ';', ' ') || ' ')";
+
+  it("MRSA: all candidates = documented candidates + additional ones", async () => {
+    const all = await candidateIds("mrsa");
+    const documented = new Set(
+      (await sql.unsafe(
+        `select ct.molecule_id from clinical_trials ct
+          where ct.molecule_id is not null and (${MRSA_TERMS.map((_, i) => `${padded} like $${i + 1}`).join(" or ")})
+         union select b.molecule_id from bioactivity b where b.pathogen_key = 'mrsa' and b.label is not null`,
+        MRSA_TERMS.map((t) => `%${t}%`),
+      )).map((r) => r.molecule_id),
+    );
+    const overlap = [...all].filter((id) => documented.has(id)).length;
+    const additional = all.size - overlap;
+
+    const page = readable(await html("/investigate?condition=MRSA%20infection"));
+    assert.ok(page.includes(`${grouped(all.size)}</span> repurposing candidates, AI-predicted`), `the pill shows all ${all.size}`);
+    assert.ok(page.includes(`${grouped(additional)}</span> additional, not already listed above`), `the pill shows ${additional} additional`);
+    const text = page.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
+    assert.ok(
+      text.includes(`MRSA has ${grouped(all.size)} repurposing candidates in all. ${grouped(overlap)} ${overlap === 1 ? "is" : "are"} already listed above`),
+      `the reconciliation states ${all.size} and ${overlap}`,
+    );
+    assert.ok(text.includes(`so the other ${grouped(additional)} are listed here`), "and the remainder");
+
+    const pathogenPage = readable(await html("/investigate?pathogen=mrsa"));
+    assert.ok(pathogenPage.includes(`All ${grouped(all.size)} repurposing candidates`), "the pathogen page shows the same total");
+  });
+});
+
 describe("the molecular dataset and the medicine library stay distinct", () => {
   it("the dashboard counts the approved library, not every molecule", async () => {
     const [row] = await sql`

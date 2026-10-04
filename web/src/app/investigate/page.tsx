@@ -124,7 +124,7 @@ async function ConditionView({ condition, params }: { condition: string; params:
   const terms = conditionTerms(condition, pathogenKey);
   const path = "/investigate";
 
-  const [pathogens, byStudies, byLab, candidates, studies, timeline] = await Promise.all([
+  const [pathogens, byStudies, byLab, candidates, allCandidates, studies, timeline] = await Promise.all([
     getPathogens(),
     getMedicinesWithStudies(terms),
     pathogenKey ? getMedicinesWithLabRecords(pathogenKey) : Promise.resolve([]),
@@ -135,6 +135,10 @@ async function ConditionView({ condition, params }: { condition: string; params:
           page: numberParam(params, "cp") ?? 1,
         })
       : Promise.resolve(null),
+    // The pathogen's whole candidate population: the figure its own page and
+    // the dashboard show. The list on this page is that population minus the
+    // candidates already documented for this condition.
+    pathogenKey ? getRepurposingCandidates({ pathogenKey, pageSize: 1 }) : Promise.resolve(null),
     getStudies({ terms, page: numberParam(params, "sp") ?? 1 }),
     getStudyTimeline(terms),
   ]);
@@ -142,6 +146,8 @@ async function ConditionView({ condition, params }: { condition: string; params:
   const pathogen = pathogenKey ? pathogens.find((p) => p.key === pathogenKey) ?? null : null;
   const pathogenLabel = pathogen?.label ?? "";
   const n = (v: number) => v.toLocaleString("en-GB");
+  // Repurposing candidates that already appear in a documented list above.
+  const alreadyDocumented = candidates && allCandidates ? allCandidates.total - candidates.total : 0;
 
   return (
     <Page>
@@ -165,16 +171,22 @@ async function ConditionView({ condition, params }: { condition: string; params:
         <nav aria-label="On this page" className="mt-6 flex flex-wrap gap-2">
           <a href="#documented" className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-rule bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
             <EvidenceIcon kind="clinical" size={10} />
-            <span className="font-mono tabular-nums text-ink">{n(byStudies.length)}</span> documented in registered studies
+            <span className="font-mono tabular-nums text-ink">{n(byStudies.length)}</span> with registered studies
           </a>
           <a href="#documented" className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-rule bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
             <EvidenceIcon kind="experimental" size={10} />
             <span className="font-mono tabular-nums text-ink">{n(byLab.length)}</span> with laboratory records
           </a>
+          {allCandidates ? (
+            <Link href={`/investigate?pathogen=${pathogenKey}`} className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-rule bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
+              <EvidenceIcon kind="computational" size={10} />
+              <span className="font-mono tabular-nums text-ink">{n(allCandidates.total)}</span> repurposing candidates, AI-predicted {DISCOVERY_THRESHOLD_TEXT}
+            </Link>
+          ) : null}
           {candidates ? (
             <a href="#candidates" className="amr-jump inline-flex min-h-10 items-center gap-2 rounded-full border border-computational bg-raised px-3.5 text-[13px] text-ink-2 no-underline">
               <EvidenceIcon kind="computational" size={10} />
-              <span className="font-mono tabular-nums text-computational">{n(candidates.total)}</span> more to investigate
+              <span className="font-mono tabular-nums text-computational">{n(candidates.total)}</span> additional, not already listed above
             </a>
           ) : null}
         </nav>
@@ -245,6 +257,24 @@ async function ConditionView({ condition, params }: { condition: string; params:
               it is already used for. They were surfaced computationally for further
               investigation and are not presented as established treatments for this condition.
             </p>
+            {allCandidates ? (
+              <p className="amr-candidate-reconcile m-0 mb-4 max-w-[76ch] text-[13px] leading-relaxed text-ink-2">
+                {pathogenLabel} has{" "}
+                <span className="font-mono tabular-nums text-ink">{n(allCandidates.total)}</span> repurposing
+                candidates in all.{" "}
+                {alreadyDocumented > 0 ? (
+                  <>
+                    <span className="font-mono tabular-nums text-ink">{n(alreadyDocumented)}</span>{" "}
+                    {alreadyDocumented === 1 ? "is" : "are"} already listed above, with a registered study for
+                    this condition or a laboratory record, so the other{" "}
+                    <span className="font-mono tabular-nums text-computational">{n(candidates.total)}</span>{" "}
+                    are listed here.
+                  </>
+                ) : (
+                  <>None of them is listed above, so all are listed here.</>
+                )}
+              </p>
+            ) : null}
             <CandidateList
               data={candidates}
               pathogenLabel={pathogenLabel}
