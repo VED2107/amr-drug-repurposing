@@ -54,22 +54,33 @@ export interface MedicineHit {
 function hitFor(row: Record<string, unknown>): MedicineHit {
   const name = String(row.generic_name);
   const moleculeId = row.molecule_id == null ? null : String(row.molecule_id);
+  const brand = row.brand_name ? String(row.brand_name) : null;
   return {
     moleculeId,
     name,
-    note: moleculeId
-      ? row.brand_name
-        ? String(row.brand_name)
-        : "Approved medicine"
-      : "No usable structure, so no AI prediction",
+    note: !moleculeId
+      ? "No usable structure, so no AI prediction"
+      : Number(row.via_combination) === 1 && brand
+        ? `An ingredient of ${brand}, a combination product`
+        : brand ?? "Approved medicine",
     href: moleculeId
       ? `/investigate/${encodeURIComponent(moleculeId)}`
       : `/investigate?medicine=${encodeURIComponent(name)}`,
   };
 }
 
+/** Rows that belong to a combination product, one row per ingredient. */
+const COMBINATION_ROW = "coalesce(match_method, '') like 'combination%'";
+
 /**
  * Medicines whose generic or brand name contains the term.
+ *
+ * A combination product is stored once per ingredient, each row carrying the
+ * product's brand ("BUTALBITAL, ASPIRIN AND CAFFEINE" on the butalbital row).
+ * Matching those brands would answer "aspirin" with butalbital and "cipro"
+ * with dexamethasone (Ciprodex). So a combination brand is only searched when
+ * nothing matches directly — "Aggrenox" still finds aspirin and dipyridamole —
+ * and such a hit says which product it came through.
  *
  * Products with no structure are included: a reader who searches for one is
  * owed "this medicine is here but could not be screened", not silence.
@@ -77,24 +88,36 @@ function hitFor(row: Record<string, unknown>): MedicineHit {
 export async function searchMedicines(term: string, limit = 8): Promise<MedicineHit[]> {
   const needle = likeNeedle(term);
   if (!needle) return [];
+  const direct = `select molecule_id from drugs
+     where lower(generic_name) like ?
+        or (lower(coalesce(brand_name, '')) like ? and not ${COMBINATION_ROW})`;
   const rows = await query<Record<string, unknown>>(
-    `select molecule_id, generic_name, brand_name from (
-       select d.molecule_id, d.generic_name, d.brand_name
+    `select molecule_id, generic_name, brand_name, via_combination from (
+       select d.molecule_id, d.generic_name, d.brand_name, 0 as via_combination
          from ${ONE_PER_MEDICINE} one
          join drugs d on d.drug_id = one.drug_id
-        where one.molecule_id in (
-          select molecule_id from drugs
-           where lower(generic_name) like ? or lower(coalesce(brand_name, '')) like ?)
+        where one.molecule_id in (${direct})
        union
-       select null as molecule_id, min(generic_name) as generic_name, null as brand_name
+       select d.molecule_id, d.generic_name, c.brand_name, 1 as via_combination
+         from ${ONE_PER_MEDICINE} one
+         join drugs d on d.drug_id = one.drug_id
+         join (select molecule_id, min(brand_name) as brand_name from drugs
+                where molecule_id is not null and ${COMBINATION_ROW}
+                  and lower(coalesce(brand_name, '')) like ?
+                group by molecule_id) c on c.molecule_id = one.molecule_id
+        where not exists (${direct})
+       union
+       select null as molecule_id, min(generic_name) as generic_name, null as brand_name,
+              0 as via_combination
          from drugs
         where molecule_id is null and lower(generic_name) like ?
         group by lower(generic_name)
      ) hits
-     order by case when lower(generic_name) like ? then 0 else 1 end,
+     order by via_combination,
+              case when lower(generic_name) like ? then 0 else 1 end,
               length(generic_name), generic_name
      limit ?`,
-    [needle, needle, needle, `${needle.slice(1)}`, limit],
+    [needle, needle, needle, needle, needle, needle, `${needle.slice(1)}`, limit],
   );
   return rows.map(hitFor);
 }

@@ -314,7 +314,9 @@ def molecule_detail(molecule_id: str) -> dict[str, Any]:
 AMR_DISEASE_PATTERNS: dict[str, tuple[str, ...]] = {
     "mrsa": ("mrsa", "methicillin-resistant", "methicillin resistant",
              "staphylococcus aureus", "staph aureus"),
-    "ecoli": ("escherichia coli", "e. coli", "e coli"),
+    # " e coli" keeps its leading space: without it "ulcerative colitis" and
+    # "difficile colitis" contain "e coli" and would be read as E. coli.
+    "ecoli": ("escherichia coli", " e. coli", " e.coli", " e coli"),
     "kpneumoniae": ("klebsiella", "k. pneumoniae", "k pneumoniae"),
     "mtb": ("tuberculosis", "mycobacterium tuberculosis", " tb ", "latent tb"),
 }
@@ -457,9 +459,11 @@ def disease_options(search: str = "", limit: int = 400) -> pd.DataFrame:
         pathogen = match_modelled_pathogen(search)
         if pathogen:
             needles.extend(AMR_DISEASE_PATTERNS[pathogen])
-        clause = " OR ".join("LOWER(term) LIKE ?" for _ in needles)
+        # Padded, so a pattern written with its own surrounding spaces (" tb ",
+        # " e coli") matches a whole word and nothing inside one.
+        clause = " OR ".join("(' ' || LOWER(term) || ' ') LIKE ?" for _ in needles)
         where += f" AND ({clause})"
-        params.extend(f"%{n.strip()}%" for n in needles)
+        params.extend(f"%{n}%" for n in needles)
     params.append(int(limit))
     return _df(
         f"""WITH RECURSIVE split(molecule_id, term, rest) AS (

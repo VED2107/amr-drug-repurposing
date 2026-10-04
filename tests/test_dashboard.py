@@ -535,6 +535,17 @@ class TestMedicineDiseaseExplorer:
         assert data.match_modelled_pathogen("Klebsiella pneumoniae bacteraemia") == "kpneumoniae"
         assert data.match_modelled_pathogen("Latent TB Infection") == "mtb"
         assert data.match_modelled_pathogen("Escherichia coli urinary infection") == "ecoli"
+        assert data.match_modelled_pathogen("E. coli bacteraemia") == "ecoli"
+        assert data.match_modelled_pathogen("E coli infection") == "ecoli"
+        assert data.match_modelled_pathogen("E.coli sepsis") == "ecoli"
+
+    def test_colitis_is_not_e_coli(self):
+        """"ulcerativE COLItis" contains "e coli"; the gate must not read it as E. coli."""
+        from app import data
+
+        for disease in ("Ulcerative Colitis", "Clostridium difficile colitis",
+                        "Inflammatory Bowel Disease; Ulcerative Colitis"):
+            assert data.match_modelled_pathogen(disease) is None, disease
 
     def test_conditions_outside_the_models_have_no_pathogen(self):
         from app import data

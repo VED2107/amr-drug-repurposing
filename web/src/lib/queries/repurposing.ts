@@ -97,9 +97,13 @@ export function candidateFilter(options: CandidateFilterOptions = {}): {
   }
   const name = likeText(options.name);
   if (name) {
+    // A combination product's brand sits on every ingredient's row, so it is
+    // not matched: "aspirin" must not bring up butalbital.
     where.push(
       `one.molecule_id in (select molecule_id from drugs
-         where lower(generic_name) like ? or lower(coalesce(brand_name, '')) like ?)`,
+         where lower(generic_name) like ?
+            or (lower(coalesce(brand_name, '')) like ?
+                and coalesce(match_method, '') not like 'combination%'))`,
     );
     params.push(name, name);
   }

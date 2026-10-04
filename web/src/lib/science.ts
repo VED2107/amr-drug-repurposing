@@ -79,7 +79,8 @@ const AMR_DISEASE_PATTERNS: Record<PathogenKey, readonly string[]> = {
     "staphylococcus aureus",
     "staph aureus",
   ],
-  ecoli: ["escherichia coli", "e. coli", "e coli"],
+  // Leading spaces matter: "ulcerative colitis" contains "e coli".
+  ecoli: ["escherichia coli", " e. coli", " e.coli", " e coli"],
   kpneumoniae: ["klebsiella", "k. pneumoniae", "k pneumoniae"],
   mtb: ["tuberculosis", "mycobacterium tuberculosis", " tb ", "latent tb"],
 };
@@ -136,7 +137,7 @@ export const DISCOVERY_THRESHOLD_TEXT = `≥${Math.round(DISCOVERY_THRESHOLD * 1
 /** This project's docking screening target. Not a universal binding cutoff. */
 export const DOCKING_SCREENING_TARGET_KCAL_MOL = -7.0;
 
-/** Shown for any condition outside the four modelled bacteria. */
+/** Shown for any condition outside the four modelled pathogens. */
 export const NO_MODEL_NOTICE =
   "No AI activity model is currently available for this condition. Predictions exist " +
   "only for MRSA, E. coli, K. pneumoniae and M. tuberculosis, so no percentage is shown.";
