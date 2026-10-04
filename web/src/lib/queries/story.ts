@@ -26,13 +26,22 @@ export interface StoryFigures {
    */
   validMolecules: number;
   /**
-   * Where those structures come from, as three parts that sum to
-   * `validMolecules`: structures with laboratory records against the four
-   * pathogens (outside the library), structures in the approved-medicine
-   * library, and the remaining ChEMBL entries. `dropped` counts structures
-   * RDKit could not read; they are excluded, not repaired.
+   * Where those structures come from, as three disjoint parts that sum to
+   * `validMolecules`: structures outside the approved-medicine library with
+   * laboratory records against the four pathogens, structures in the library,
+   * and the remaining ChEMBL approved-drug entries (max_phase 4, and their
+   * parents) that map to no FDA product. `libraryWithLab` is the overlap the
+   * split hides: library medicines that also have laboratory records.
+   * `dropped` counts structures RDKit could not read; they are excluded, not
+   * repaired.
    */
-  molecularSources: { labTested: number; library: number; other: number; dropped: number };
+  molecularSources: {
+    labTested: number;
+    library: number;
+    libraryWithLab: number;
+    other: number;
+    dropped: number;
+  };
   /** Laboratory activity records carrying an active/inactive label. */
   labelledLabRecords: number;
   /** Current-model predictions for library medicines (medicines × pathogens). */
@@ -59,6 +68,10 @@ export async function getStoryFigures(): Promise<StoryFigures> {
          (select count(*) from molecules
            where is_valid and molecule_id in ${LIBRARY})                        as in_library,
          (select count(*) from molecules m
+           where m.is_valid and m.molecule_id in ${LIBRARY}
+             and exists (select 1 from bioactivity b
+                         where b.molecule_id = m.molecule_id))                  as library_lab,
+         (select count(*) from molecules m
            where m.is_valid and m.molecule_id not in ${LIBRARY}
              and exists (select 1 from bioactivity b
                          where b.molecule_id = m.molecule_id))                  as lab_tested,
@@ -82,6 +95,7 @@ export async function getStoryFigures(): Promise<StoryFigures> {
     molecularSources: {
       labTested,
       library: inLibrary,
+      libraryWithLab: toNum(row?.library_lab) ?? 0,
       other: Math.max(0, valid - inLibrary - labTested),
       dropped: toNum(row?.dropped) ?? 0,
     },

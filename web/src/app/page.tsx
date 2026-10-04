@@ -270,9 +270,9 @@ function MolecularSources({
 }) {
   const n = (v: number) => v.toLocaleString("en-GB");
   const parts = [
-    { key: "lab", value: sources.labTested, label: "with laboratory records against the four pathogens", tone: "bg-experimental" },
-    { key: "library", value: sources.library, label: "approved medicines in the screened library", tone: "bg-ink" },
-    { key: "other", value: sources.other, label: "other ChEMBL compounds", tone: "bg-rule-strong" },
+    { key: "lab", value: sources.labTested, label: "other compounds with laboratory records against the four pathogens", tone: "bg-experimental" },
+    { key: "library", value: sources.library, label: "approved medicines in the FDA screening library", tone: "bg-ink" },
+    { key: "other", value: sources.other, label: "other ChEMBL drug entries outside that library", tone: "bg-rule-strong" },
   ].filter((p) => p.value > 0);
   return (
     <div className="amr-key-molecules amr-prov rounded-card border border-rule bg-raised px-6 py-5 md:px-7">
@@ -324,7 +324,10 @@ function MolecularSources({
       </div>
 
       <p className="m-0 mt-3 font-mono text-[10.5px] leading-relaxed text-faint">
-        {n(total)} valid structures. Only {n(sources.library)} are approved medicines.
+        {n(total)} valid structures, each counted once.{" "}
+        {sources.libraryWithLab > 0
+          ? `The ${n(sources.library)} library medicines include ${n(sources.libraryWithLab)} that also have laboratory records, so ${n(sources.labTested + sources.libraryWithLab)} structures have records in all.`
+          : ""}
         {sources.dropped > 0 ? ` ${n(sources.dropped)} that could not be read were dropped, not repaired.` : ""}
       </p>
     </div>
