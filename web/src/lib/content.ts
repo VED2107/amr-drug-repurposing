@@ -28,7 +28,7 @@ export const ORGANISMS: Record<
     resistanceLabel: "Resistance example",
     resistance: "Altered PBP2a target",
     detail:
-      "MRSA carries an altered target, PBP2a, so beta-lactam antibiotics bind it poorly. The thick wall of a Gram-positive cell surrounds it.",
+      "MRSA carries an altered target, PBP2a, so beta-lactam antimicrobials bind it poorly. The thick wall of a Gram-positive cell surrounds it.",
   },
   ecoli: {
     scientific: "Escherichia coli",

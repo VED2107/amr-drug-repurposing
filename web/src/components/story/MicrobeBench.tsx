@@ -119,7 +119,7 @@ export function MicrobeBench({ items, threshold }: { items: OrganismData[]; thre
           <figcaption className="flex flex-wrap items-center justify-between gap-3 border-t border-rule-soft px-4 py-3">
             <span className="flex items-center gap-2 text-[12px] text-muted">
               <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full bg-accent" />
-              {it.key === "mrsa" ? "Beta-lactam antibiotic" : it.key === "kpneumoniae" ? "Carbapenem antibiotic" : "Drug molecule"}
+              {it.key === "mrsa" ? "Beta-lactam antimicrobial" : it.key === "kpneumoniae" ? "Carbapenem antimicrobial" : "Drug molecule"}
               , schematic, not to scale
             </span>
             <button type="button" onClick={() => setRun((r) => r + 1)} className="amr-btn-quiet !min-h-9 !px-3 !text-[12px]">
