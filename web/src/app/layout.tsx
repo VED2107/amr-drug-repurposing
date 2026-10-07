@@ -49,7 +49,7 @@ const mono = localFont({
 export const metadata: Metadata = {
   title: "AMR Drug Repurposing",
   description:
-    "Search approved medicines for AI-predicted antibacterial activity against MRSA, " +
+    "Search approved medicines for AI-predicted antimicrobial activity against MRSA, " +
     "E. coli, K. pneumoniae and M. tuberculosis, and see the documented evidence " +
     "behind each one. Nothing here establishes clinical benefit.",
 };

@@ -466,7 +466,7 @@ describe("the percentage gate holds for conditions", () => {
     const candidates = page.slice(page.indexOf("Other medicines to investigate"));
     assert.ok(candidates.includes(first.molecule_id), "the first candidate matches the database");
     assert.ok(/Existing use: /.test(candidates), "each candidate shows its existing use");
-    assert.ok(/not already antibacterial medicines/.test(candidates), "the exclusion is stated");
+    assert.ok(/not already antimicrobials/.test(candidates), "the exclusion is stated");
 
     const antibacterials = await sql`select molecule_id from medicine_use_status where status = 'antibacterial'`;
     for (const r of antibacterials) {
@@ -926,7 +926,7 @@ describe("the medicine view shows its existing use first", () => {
     const order = [
       "Existing / approved use",
       "Repurposing investigation",
-      "being investigated here for AI-predicted antibacterial activity against",
+      "being investigated here for AI-predicted antimicrobial activity against",
       'id="activity"',
       'id="evidence"',
       'id="studies"',
@@ -942,8 +942,8 @@ describe("the medicine view shows its existing use first", () => {
       select d.molecule_id from drugs d join medicine_use_status us on us.molecule_id = d.molecule_id
        where us.status = 'antibacterial' and lower(d.generic_name) = 'ciprofloxacin' limit 1`;
     const page = readable(await html(`/investigate/${row.molecule_id}`));
-    assert.ok(/already an antibacterial medicine, so it is not counted among the repurposing/.test(page));
-    assert.ok(!/being investigated here for AI-predicted antibacterial activity/.test(page));
+    assert.ok(/already an antimicrobial, so it is not counted among the repurposing/.test(page));
+    assert.ok(!/being investigated here for AI-predicted antimicrobial activity/.test(page));
   });
 });
 
@@ -961,7 +961,7 @@ describe("the downloads are the site's own data", () => {
     }
     assert.ok(header.includes("Existing / approved use") && header.includes("Anti-infective classification"));
     const cls = header.indexOf("Anti-infective classification");
-    assert.ok(rows.some((r) => r[cls] === "Existing antibacterial"), "antibacterials are kept in the library");
+    assert.ok(rows.some((r) => r[cls] === "Existing antimicrobial"), "antimicrobials are kept in the library");
   });
 
   it("repurposing candidates: exactly the dashboard's population, and per pathogen", async () => {
@@ -973,7 +973,7 @@ describe("the downloads are the site's own data", () => {
     assert.equal(new Set(got).size, got.length, "no medicine twice");
     assert.deepEqual(new Set(got), ids, "the same medicines as the database definition");
     const cls = header.indexOf("Anti-infective classification");
-    assert.ok(!rows.some((r) => r[cls] === "Existing antibacterial"), "no existing antibacterial");
+    assert.ok(!rows.some((r) => r[cls] === "Existing antimicrobial"), "no existing antimicrobial");
 
     const dashboard = readable(await html("/dashboard"));
     assert.ok(dashboard.includes(`${grouped(ids.size)} rows`), "the download is labelled with the dashboard count");

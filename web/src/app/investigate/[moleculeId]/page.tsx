@@ -221,12 +221,12 @@ export default async function MedicinePage(props: {
         <p className="m-0 mt-3 max-w-[72ch] text-[15px] leading-relaxed text-ink-2">
           {use?.status === "antibacterial" ? (
             <>
-              {name} is already an antibacterial medicine, so it is not counted among the repurposing
+              {name} is already an antimicrobial, so it is not counted among the repurposing
               candidates. Its AI-predicted activity is shown below for reference.
             </>
           ) : reasons.length > 0 && use?.status !== "unclassified" && use?.status ? (
             <>
-              This medicine is being investigated here for AI-predicted antibacterial activity
+              This medicine is being investigated here for AI-predicted antimicrobial activity
               against{" "}
               <strong className="font-semibold text-ink">{listOf(reasons.map(label))}</strong>. It was
               surfaced computationally for further investigation; it is not an established
@@ -236,7 +236,7 @@ export default async function MedicinePage(props: {
             <>
               {name} reaches {DISCOVERY_THRESHOLD_TEXT} AI-predicted activity against{" "}
               {listOf(reasons.map(label))}, but no WHO ATC code or FDA pharmacologic class says
-              whether it is already an antibacterial. It needs review, so it is not counted among
+              whether it is already an antimicrobial. It needs review, so it is not counted among
               the repurposing candidates.
             </>
           ) : (
@@ -454,7 +454,7 @@ export default async function MedicinePage(props: {
           <p className="m-0 max-w-[76ch] text-[13px] leading-relaxed text-ink-2">
             Other repurposing candidates: approved medicines besides {name} with AI-predicted
             activity {DISCOVERY_THRESHOLD_TEXT} against the chosen pathogen, leaving out existing
-            antibacterials. They are computational candidates for further investigation, not
+            antimicrobials. They are computational candidates for further investigation, not
             alternatives and not recommendations.
           </p>
 
@@ -682,12 +682,12 @@ function listOf(items: string[]): string {
 }
 
 const STATUS_LINE: Record<string, string> = {
-  antibacterial: "Classified as an existing antibacterial.",
+  antibacterial: "Classified as an existing antimicrobial.",
   other_anti_infective:
-    "Classified as an anti-infective that is not an antibacterial (for example an antifungal, antiviral or antiparasitic medicine).",
+    "Classified as another kind of anti-infective (for example an antifungal, antiviral or antiparasitic medicine).",
   not_anti_infective: "Not classified as an anti-infective.",
   unclassified:
-    "Neither a WHO ATC code nor an FDA pharmacologic class was found for it, so whether it is already an antibacterial is not established. It needs review and is not counted as a repurposing candidate.",
+    "Neither a WHO ATC code nor an FDA pharmacologic class was found for it, so whether it is already an antimicrobial is not established. It needs review and is not counted as a repurposing candidate.",
 };
 
 /** What the medicine is already approved and classified for, with sources. */

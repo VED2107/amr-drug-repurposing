@@ -24,8 +24,8 @@ const PATHOGEN_COLUMN: Record<PathogenKey, string> = {
 };
 
 const STATUS_TEXT: Record<string, string> = {
-  antibacterial: "Existing antibacterial",
-  other_anti_infective: "Other anti-infective (not antibacterial)",
+  antibacterial: "Existing antimicrobial",
+  other_anti_infective: "Other anti-infective (antifungal, antiviral or antiparasitic)",
   not_anti_infective: "Not an anti-infective",
   unclassified: "Unclassified (needs review)",
 };
@@ -72,7 +72,7 @@ export async function approvedMedicinesCsv(): Promise<{ csv: string; rows: numbe
     "WHO ATC therapeutic groups",
     "FDA pharmacologic classes",
     "Anti-infective classification",
-    "Existing antibacterial (true / false / unclassified)",
+    "Existing antimicrobial (true / false / unclassified)",
     "Classification basis",
     "Structure available",
     ...PREDICTION_HEADERS,
@@ -118,7 +118,7 @@ export async function repurposingCandidatesCsv(
     "ChEMBL ID",
     "Existing / approved use",
     "Anti-infective classification",
-    "Existing antibacterial (true / false / unclassified)",
+    "Existing antimicrobial (true / false / unclassified)",
     ...PREDICTION_HEADERS,
     `Pathogens with AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT}`,
     "Laboratory records (ChEMBL)",

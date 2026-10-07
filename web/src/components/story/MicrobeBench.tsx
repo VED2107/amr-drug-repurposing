@@ -27,7 +27,7 @@ export interface OrganismData {
  * exactly the four mechanisms the slide names, and nothing more; the drawing
  * is schematic and not to scale.
  */
-export function BacteriaBench({ items, threshold }: { items: OrganismData[]; threshold: string }) {
+export function MicrobeBench({ items, threshold }: { items: OrganismData[]; threshold: string }) {
   const [active, setActive] = useState<PathogenKey>("mrsa");
   const [run, setRun] = useState(0);
   const [hot, setHot] = useState<number | null>(null);

@@ -181,8 +181,8 @@ export default async function Methods() {
             reach {DISCOVERY_THRESHOLD_TEXT} for at least one species, a discovery filter rather than
             a clinical cutoff.
             </Step>
-            <Step n="08" title="Set aside what is already an antibacterial" chip={n(summary.candidates) + " candidates"}>
-            Existing antibacterials ({n(summary.existingAntibacterials)}) are identified from WHO ATC
+            <Step n="08" title="Set aside what is already an antimicrobial" chip={n(summary.candidates) + " candidates"}>
+            Existing antimicrobials ({n(summary.existingAntibacterials)}) are identified from WHO ATC
             codes and FDA pharmacologic classes, never from a name. {n(summary.needsReview)} that
             neither source classifies are kept for review, not counted.{" "}
             <strong className="font-semibold text-computational">{n(summary.candidates)}</strong> repurposing
@@ -220,7 +220,7 @@ export default async function Methods() {
             kind="computational"
             term="Docking score, e.g. −9.7 kcal/mol"
             means="A computer estimate of how well the molecule fits one selected pathogen protein. More negative is a better fit."
-            not="Proof that the molecule binds, or that it has an antibacterial effect."
+            not="Proof that the molecule binds, or that it has an antimicrobial effect."
             how={`This project screens at ${DOCKING_SCREENING_TARGET_KCAL_MOL.toFixed(1)} kcal/mol, its own target rather than a universal cutoff. Only a subset of medicines has been docked.`}
           />
           <Reading
@@ -287,7 +287,7 @@ export default async function Methods() {
           </ol>
         </div>
         <p className="m-0 mt-5 border-t border-rule-soft pt-4 text-[13px] leading-relaxed text-muted">
-          The worker does not yet classify new medicines as antibacterial or not. Until that step
+          The worker does not yet classify new medicines as antimicrobial or not. Until that step
           runs, a new medicine reads &ldquo;not yet checked&rdquo; and is not counted as a
           repurposing candidate.
         </p>

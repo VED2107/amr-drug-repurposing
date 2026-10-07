@@ -58,7 +58,7 @@ export const ORGANISMS: Record<
 
 /**
  * Well-known repurposing stories, from the project presentation. Halicin is the
- * odd one out and says so: never approved, its antibacterial activity was
+ * odd one out and says so: never approved, its antimicrobial activity was
  * identified by deep learning (Stokes et al., Cell, 2020), the idea this
  * project applies to approved medicines.
  */
@@ -80,7 +80,7 @@ export const REPURPOSING_EXAMPLES: {
     fromLabel: "First studied for",
     from: "Diabetes, as the preclinical compound SU3327",
     toLabel: "Identified by deep learning",
-    to: "Antibacterial activity (2020)",
+    to: "Antimicrobial activity (2020)",
     note: "Not an approved medicine; it was preclinical when identified.",
   },
 ];
@@ -123,7 +123,7 @@ export const PIPELINE: {
   {
     verb: "Check evidence",
     line: "Search registered clinical studies and other evidence",
-    note: "This tells us what has already been studied, not whether a new antibacterial use works.",
+    note: "This tells us what has already been studied, not whether a new antimicrobial use works.",
     evidence: "clinical",
     evidenceLabel: "Clinical record",
   },

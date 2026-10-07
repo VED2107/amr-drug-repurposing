@@ -37,11 +37,11 @@ export function CandidateFlow(p: Props) {
     },
     {
       value: afterAnti,
-      label: "not already antibacterial medicines",
+      label: "not already antimicrobials",
       tone: "amr-pill-c2",
       piece: {
         value: p.existingAntibacterials,
-        label: "already antibacterial medicines, set aside",
+        label: "already antimicrobials, set aside",
         tone: "amr-pill-ochre",
       },
     },

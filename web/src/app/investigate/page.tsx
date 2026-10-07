@@ -252,7 +252,7 @@ async function ConditionView({ condition, params }: { condition: string; params:
           <ComputationalBlock id="candidates" title="Other medicines to investigate">
             <p className="m-0 mb-4 max-w-[76ch] text-[13px] leading-relaxed text-ink-2">
               Approved medicines with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT} against{" "}
-              {pathogenLabel} that are not already antibacterial medicines, have no registered
+              {pathogenLabel} that are not already antimicrobials, have no registered
               study for this condition and have no laboratory record against it. Each shows what
               it is already used for. They were surfaced computationally for further
               investigation and are not presented as established treatments for this condition.
@@ -389,14 +389,14 @@ async function PathogenView({ pathogenKey, params }: { pathogenKey: PathogenKey;
 
       <p className="m-0 mt-5 max-w-[70ch] text-[15px] leading-relaxed text-ink-2">
         Approved medicines with AI-predicted activity {DISCOVERY_THRESHOLD_TEXT} against {label}, leaving
-        out medicines that are already antibacterials. Each is shown with what it is already used
+        out medicines that are already antimicrobials. Each is shown with what it is already used
         for. They are surfaced computationally for further investigation, not as treatments.
       </p>
 
       {counts ? (
         <dl className="m-0 mt-6 flex flex-wrap gap-2.5">
           <Count label={`AI-predicted activity ${DISCOVERY_THRESHOLD_TEXT}`} value={n(counts.withActivity)} />
-          <Count label="Existing antibacterials set aside" value={n(counts.existingAntibacterials)} />
+          <Count label="Existing antimicrobials set aside" value={n(counts.existingAntibacterials)} />
           <Count label="Needing review" value={n(counts.needsReview)} />
           <Count label="Repurposing candidates" value={n(counts.candidates)} accent />
         </dl>

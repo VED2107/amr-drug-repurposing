@@ -34,7 +34,7 @@ export class MisleadingLabelError extends Error {
   constructor(label: string) {
     super(
       `percentage label ${JSON.stringify(label)} implies clinical benefit; ` +
-        "this system predicts antibacterial activity, it does not establish efficacy",
+        "this system predicts antimicrobial activity, it does not establish efficacy",
     );
     this.name = "MisleadingLabelError";
   }

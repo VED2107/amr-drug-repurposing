@@ -55,7 +55,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
         <Figure
           value={n(summary.medicines)}
           label="Approved medicines"
-          note="Approved medicines matched to the FDA Orange Book, antibacterials included"
+          note="Approved medicines matched to the FDA Orange Book, antimicrobials included"
         />
         <Figure
           value={n(summary.withActivity)}
@@ -65,7 +65,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
         <Figure
           value={n(summary.candidates)}
           label="Repurposing candidates"
-          note="Of those, the medicines that are not already antibacterials"
+          note="Of those, the medicines that are not already antimicrobials"
           accent
         />
       </section>
@@ -85,10 +85,10 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
           />
         </div>
         <p className="m-0 mt-3 text-[12px] leading-relaxed text-muted">
-          Existing antibacterials are identified from WHO ATC codes and FDA pharmacologic
+          Existing antimicrobials are identified from WHO ATC codes and FDA pharmacologic
           classes. Medicines needing review (neither source says whether they are
-          antibacterials) stay in the approved-medicine download, marked
-          &ldquo;unclassified&rdquo;. They are not assumed to be non-antibacterials, so they are
+          antimicrobials) stay in the approved-medicine download, marked
+          &ldquo;unclassified&rdquo;. They are not assumed to be non-antimicrobials, so they are
           not counted as candidates.
         </p>
       </section>
@@ -160,7 +160,7 @@ export default async function Dashboard(props: { searchParams: Promise<RawSearch
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <span aria-hidden="true" className="h-1.5 w-1.5 bg-accent" />
-                      {n(p.existingAntibacterials)} antibacterials
+                      {n(p.existingAntibacterials)} antimicrobials
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <span aria-hidden="true" className="h-1.5 w-1.5 bg-faint" />

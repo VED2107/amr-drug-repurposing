@@ -3,7 +3,7 @@ import Link from "next/link";
 import { EvidenceIcon } from "@/components/investigate";
 import { Page } from "@/components/primitives";
 import { InvestigateSearch } from "@/components/search/InvestigateSearch";
-import { BacteriaBench } from "@/components/story/BacteriaBench";
+import { MicrobeBench } from "@/components/story/MicrobeBench";
 import { Pipeline } from "@/components/story/Pipeline";
 import { HeroMotif } from "@/components/story/HeroMotif";
 import { MethodLink } from "@/components/story/MethodLink";
@@ -139,11 +139,11 @@ export default async function Overview() {
       </section>
 
       <Chapter
-        id="bacteria"
+        id="microbes"
         title="Four pathogens. Four different resistance problems."
         lede="Only these four can show a percentage. Any other condition shows documented evidence only."
       >
-        <BacteriaBench
+        <MicrobeBench
           threshold={DISCOVERY_THRESHOLD_TEXT}
           items={summary.pathogens.map((p) => ({
             key: p.key,
@@ -234,7 +234,7 @@ function PopulationPanel({
             </p>
           </div>
           <p className="m-0 mt-1.5 text-[13px] leading-snug text-ink-2">
-            repurposing candidates: not already antibacterials, with AI-predicted activity{" "}
+            repurposing candidates: not already antimicrobials, with AI-predicted activity{" "}
             {DISCOVERY_THRESHOLD_TEXT} against at least one pathogen
           </p>
         </div>
