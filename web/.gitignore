@@ -48,8 +48,3 @@ next-env.d.ts
 *-key.json
 *.serviceaccount.json
 gcp-*.json
-
-# Cloudflare (OpenNext) build output
-/.open-next/
-/.wrangler/
-.dev.vars*

@@ -243,21 +243,7 @@ function withinDeadline<T>(pending: PromiseLike<T>, ms: number): Promise<T> {
   return Promise.race([Promise.resolve(pending), deadline]).finally(() => clearTimeout(timer));
 }
 
-/*
-  Cloudflare Workers cannot carry a socket from one request into the next: a
-  connection opened while serving one visitor fails with "Cannot perform I/O on
-  behalf of a different request" when the next visitor's query tries to use it.
-  So on Workers the pool belongs to the request (React's `cache` scopes it to
-  one render) and is never kept in module scope. On Node — `next dev`, `next
-  start`, Vercel — the shared pool below is unchanged.
-*/
-const onWorkers =
-  typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
-
-const requestDriver = cache((): Promise<Driver> => createSupabaseDriver());
-
 function driver(): Promise<Driver> {
-  if (onWorkers && dataSource() === "supabase") return requestDriver();
   if (!driverPromise) {
     driverPromise =
       dataSource() === "sqlite" ? createSqliteDriver() : createSupabaseDriver();
@@ -330,8 +316,7 @@ const cachedRead = unstable_cache(
  * ignored — requests still open connections as they always did.
  */
 export async function warmPool(connections = 2): Promise<void> {
-  // Nothing outlives a request on Workers, so there is no pool to warm.
-  if (dataSource() === "sqlite" || onWorkers) return;
+  if (dataSource() === "sqlite") return;
   const d = await driver();
   await Promise.all(Array.from({ length: connections }, () => d.all("select 1", []).catch(() => [])));
 }
